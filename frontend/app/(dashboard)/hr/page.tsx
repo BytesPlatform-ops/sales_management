@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { api } from '@/lib/api-client';
 import { StatsCard } from '@/components/dashboard/stats-card';
 import { Leaderboard } from '@/components/dashboard/leaderboard';
+import { PendingLeadsFeed } from '@/components/dashboard/pending-leads-feed';
 import { Button } from '@/components/ui/button';
 import { formatDuration, getGreeting } from '@/lib/utils';
 import { Users, Phone, Clock, AlertCircle, RefreshCw } from 'lucide-react';
@@ -108,16 +109,24 @@ export default function HRDashboard() {
           icon={AlertCircle}
           variant={pendingCount > 0 ? 'warning' : 'default'}
         />
-        <StatsCard
-          title="Avg Talk Time"
-          value={formatDuration(0)}
-          icon={Clock}
-        />
+        
       </div>
 
       {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Pending Approvals */}
+        {/* Pending Lead Verifications - Real-time */}
+        <div className="lg:col-span-2">
+          <PendingLeadsFeed />
+        </div>
+
+        {/* Leaderboard */}
+        <div>
+          <Leaderboard type="daily" />
+        </div>
+      </div>
+
+      {/* Pending Attendance Approvals */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           <div className="bg-white rounded-xl p-6 border shadow-sm">
             <div className="flex items-center justify-between mb-4">
@@ -157,11 +166,6 @@ export default function HRDashboard() {
               </div>
             )}
           </div>
-        </div>
-
-        {/* Leaderboard */}
-        <div>
-          <Leaderboard type="daily" />
         </div>
       </div>
 

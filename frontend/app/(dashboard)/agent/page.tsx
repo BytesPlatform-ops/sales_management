@@ -39,11 +39,16 @@ const fetcher = async (url: string) => {
 export default function AgentDashboard() {
   const { user } = useAuth();
   const [isAddingLead, setIsAddingLead] = useState(false);
+  const [leadDialogOpen, setLeadDialogOpen] = useState(false);
   const [leadSuccess, setLeadSuccess] = useState(false);
   const [isAddingSale, setIsAddingSale] = useState(false);
   const [saleDialogOpen, setSaleDialogOpen] = useState(false);
   const [saleSuccess, setSaleSuccess] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
+  
+  // Lead form fields
+  const [leadCustomerName, setLeadCustomerName] = useState('');
+  const [leadCustomerEmail, setLeadCustomerEmail] = useState('');
   
   // New sale form fields
   const [customerName, setCustomerName] = useState('');
@@ -61,8 +66,12 @@ export default function AgentDashboard() {
     }
   );
 
-  // Add lead handler
+  // Add lead handler - now submits for verification
   const handleAddLead = useCallback(async () => {
+    if (!leadCustomerName.trim() || !leadCustomerEmail.trim()) {
+      return;
+    }
+
     setIsAddingLead(true);
     setLeadSuccess(false);
     
@@ -70,22 +79,34 @@ export default function AgentDashboard() {
       const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
       const response = await fetch('/api/agent/leads', {
         method: 'POST',
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          customerName: leadCustomerName.trim(),
+          customerEmail: leadCustomerEmail.trim(),
+        }),
       });
       
       if (response.ok) {
         setLeadSuccess(true);
-        // Refresh data immediately
-        mutate();
-        // Clear success message after 2 seconds
-        setTimeout(() => setLeadSuccess(false), 2000);
+        setLeadDialogOpen(false);
+        setLeadCustomerName('');
+        setLeadCustomerEmail('');
+        // Note: We don't mutate() here because lead count won't change until HR approves
+        // Clear success message after 3 seconds
+        setTimeout(() => setLeadSuccess(false), 3000);
+      } else {
+        const error = await response.json();
+        console.error('Failed to submit lead:', error.message);
       }
     } catch (error) {
-      console.error('Failed to add lead:', error);
+      console.error('Failed to submit lead:', error);
     } finally {
       setIsAddingLead(false);
     }
-  }, [mutate]);
+  }, [leadCustomerName, leadCustomerEmail]);
 
   // Add sale handler - now uses detailed sale logging
   const handleAddSale = useCallback(async () => {
@@ -571,36 +592,89 @@ export default function AgentDashboard() {
           <div>
             <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
               <Target className="h-5 w-5 text-amber-500" />
-              Add New Lead
+              Submit Lead for Verification
             </h3>
             <p className="text-gray-500 text-sm mt-1">
-              Record a qualified lead to boost your daily earnings
+              Submit a qualified lead - HR will verify before it counts toward your stats
             </p>
           </div>
           <div className="flex items-center gap-4">
             {leadSuccess && (
               <span className="text-green-600 text-sm font-medium animate-fade-in">
-                <CheckCircle2 className="inline h-4 w-4 mr-1" /> Lead added successfully!
+                <CheckCircle2 className="inline h-4 w-4 mr-1" /> Lead submitted for verification!
               </span>
             )}
-            <Button
-              onClick={handleAddLead}
-              disabled={isAddingLead}
-              className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-lg hover:shadow-xl transition-all"
-              size="lg"
-            >
-              {isAddingLead ? (
-                <>
-                  <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                  Adding...
-                </>
-              ) : (
-                <>
+            <Dialog open={leadDialogOpen} onOpenChange={setLeadDialogOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-lg hover:shadow-xl transition-all"
+                  size="lg"
+                >
                   <Plus className="h-5 w-5 mr-2" />
-                  Add Lead
-                </>
-              )}
-            </Button>
+                  Submit Lead
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Target className="h-5 w-5 text-amber-500" />
+                    Submit Lead for Verification
+                  </DialogTitle>
+                  <DialogDescription>
+                    Enter customer details. HR will verify before it counts toward your earnings.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="leadCustomerName" className="flex items-center gap-2">
+                      <User className="h-4 w-4 text-gray-500" />
+                      Customer Name
+                    </Label>
+                    <Input
+                      id="leadCustomerName"
+                      placeholder="Enter customer name"
+                      value={leadCustomerName}
+                      onChange={(e) => setLeadCustomerName(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="leadCustomerEmail" className="flex items-center gap-2">
+                      <span className="text-gray-500">@</span>
+                      Customer Email
+                    </Label>
+                    <Input
+                      id="leadCustomerEmail"
+                      type="email"
+                      placeholder="customer@example.com"
+                      value={leadCustomerEmail}
+                      onChange={(e) => setLeadCustomerEmail(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setLeadDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleAddLead}
+                    disabled={isAddingLead || !leadCustomerName.trim() || !leadCustomerEmail.trim()}
+                    className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
+                  >
+                    {isAddingLead ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Submitting...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="h-4 w-4 mr-2" />
+                        Submit Lead
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
         </div>
       </div>
