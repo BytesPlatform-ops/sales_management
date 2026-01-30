@@ -15,9 +15,15 @@ import {
 // Attendance multipliers for salary calculation
 export const ATTENDANCE_MULTIPLIERS = {
   on_time: 1.0,   // 100% salary
-  late: 0.5,      // 50% salary deduction
+  late: 1.0,      // 100% salary (first 3 lates are FREE, 4th+ counts as half day)
   half_day: 0.5,  // 50% salary
   absent: 0,      // 0% salary
+};
+
+// "3 Lates Free" Policy Constants
+export const LATE_POLICY = {
+  FREE_LATES: 3,           // First 3 lates in a month are FREE
+  EXCESS_LATE_PENALTY: 0.5, // 4th+ late counts as 0.5 day deduction
 };
 
 // Performance scoring weights (Step 5 Formula)
@@ -67,8 +73,20 @@ export interface SalaryBreakdown {
   todayPerformanceScore: number;
   todayAttendanceMultiplier: number;
   
+  // "3 Lates Free" Policy Deduction
+  latePolicy: {
+    totalLates: number;
+    totalHalfDays: number;
+    freeLatesUsed: number;
+    freeLatesRemaining: number;
+    excessLates: number;
+    deductionDays: number;
+    deductionAmount: number;
+  };
+  
   // Totals
   totalEarned: number;
+  totalEarnedBeforeDeduction: number;
   projectedSalary: number;
   
   // Breakdown by attendance status
@@ -113,11 +131,61 @@ export function calculatePerformanceScore(stats: DailyStats): number {
 }
 
 /**
- * Calculate daily earnings based on performance and attendance
- * Earnings = dailyPotential * performanceScore * attendanceMultiplier
+ * Calculate the "3 Lates Free" policy deduction
  * 
- * Step 5 Penalty: If attendance.status is 'half_day' AND hr_approved is false,
- * multiply result by 0.5 (additional penalty)
+ * Policy:
+ * - First 3 lates in a month are FREE (0 deduction)
+ * - Starting from 4th late onwards, each late = 0.5 day deduction
+ * - Half days always = 0.5 day deduction
+ * 
+ * Formula:
+ * ExcessLates = Math.max(0, TotalLates - 3)
+ * TotalDeductionDays = (CountHalfDays * 0.5) + (ExcessLates * 0.5)
+ * DeductionAmount = TotalDeductionDays * DailyPotential
+ */
+export function calculateLatePolicyDeduction(
+  totalLates: number,
+  totalHalfDays: number,
+  dailyPotential: number
+): {
+  excessLates: number;
+  deductionDays: number;
+  deductionAmount: number;
+  freeLatesUsed: number;
+  freeLatesRemaining: number;
+} {
+  // First 3 lates are free
+  const freeLatesUsed = Math.min(totalLates, LATE_POLICY.FREE_LATES);
+  const freeLatesRemaining = LATE_POLICY.FREE_LATES - freeLatesUsed;
+  
+  // Excess lates beyond the free allowance
+  const excessLates = Math.max(0, totalLates - LATE_POLICY.FREE_LATES);
+  
+  // Total deduction days = (half days * 0.5) + (excess lates * 0.5)
+  const deductionDays = (totalHalfDays * 0.5) + (excessLates * LATE_POLICY.EXCESS_LATE_PENALTY);
+  
+  // Deduction amount
+  const deductionAmount = deductionDays * dailyPotential;
+  
+  return {
+    excessLates,
+    deductionDays: Math.round(deductionDays * 100) / 100,
+    deductionAmount: Math.round(deductionAmount * 100) / 100,
+    freeLatesUsed,
+    freeLatesRemaining,
+  };
+}
+
+/**
+ * Calculate daily earnings based on performance and attendance
+ * 
+ * NEW "3 Lates Free" Policy:
+ * - on_time: 100% of daily potential * performance
+ * - late: 100% of daily potential * performance (deduction handled at month level)
+ * - half_day: 50% of daily potential * performance
+ * - absent: 0% earnings
+ * 
+ * Note: Late deductions are now calculated at the month level via calculateLatePolicyDeduction()
  */
 export function calculateDailyEarnings(
   dailyPotential: number,
@@ -260,8 +328,22 @@ export function calculateSalaryBreakdown(
     }
   }
   
-  // Total earned = Ghost + Previous Days + Today
-  const totalEarned = ghostEarnings + activeEarnings + todayEarnings;
+  // Calculate "3 Lates Free" policy deduction
+  // Total lates and half days for the month
+  const totalLates = attendanceBreakdown.late.days;
+  const totalHalfDays = attendanceBreakdown.halfDay.days;
+  
+  const latePolicyDeduction = calculateLatePolicyDeduction(
+    totalLates,
+    totalHalfDays,
+    dailyPotential
+  );
+  
+  // Total earned BEFORE late policy deduction = Ghost + Previous Days + Today
+  const totalEarnedBeforeDeduction = ghostEarnings + activeEarnings + todayEarnings;
+  
+  // Total earned AFTER late policy deduction
+  const totalEarned = totalEarnedBeforeDeduction - latePolicyDeduction.deductionAmount;
   
   // Calculate projected salary (assuming average performance continues)
   const daysWorkedSoFar = activeDays + (todayStats ? 1 : 0);
@@ -289,6 +371,18 @@ export function calculateSalaryBreakdown(
     todayPerformanceScore: Math.round(todayPerformanceScore * 100),
     todayAttendanceMultiplier,
     
+    // "3 Lates Free" Policy Info
+    latePolicy: {
+      totalLates,
+      totalHalfDays,
+      freeLatesUsed: latePolicyDeduction.freeLatesUsed,
+      freeLatesRemaining: latePolicyDeduction.freeLatesRemaining,
+      excessLates: latePolicyDeduction.excessLates,
+      deductionDays: latePolicyDeduction.deductionDays,
+      deductionAmount: latePolicyDeduction.deductionAmount,
+    },
+    
+    totalEarnedBeforeDeduction: Math.round(totalEarnedBeforeDeduction * 100) / 100,
     totalEarned: Math.round(totalEarned * 100) / 100,
     projectedSalary: Math.round(projectedSalary * 100) / 100,
     

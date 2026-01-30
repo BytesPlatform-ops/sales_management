@@ -16,7 +16,7 @@ import {
   getWorkingDaysRemaining,
   formatDurationHuman,
 } from '@/lib/date-utils';
-import { getCurrentShiftWindow, getShiftStartTimeUTC } from '@/lib/attendance-utils';
+import { getCurrentShiftWindow, getShiftStartTimeUTC, isWeekendShift } from '@/lib/attendance-utils';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
@@ -138,6 +138,7 @@ export async function GET(request: NextRequest) {
       talk_time_seconds: string | number;
     }
     
+    // Only count calls with duration >= 30 seconds for talk time calculation
     const callLogStats = await query<CallLogStats>(
       `SELECT 
          call_time::date::text as date,
@@ -145,12 +146,19 @@ export async function GET(request: NextRequest) {
          COALESCE(SUM(
            CASE 
              WHEN call_duration ~ '^\\d+:\\d+:\\d+$' THEN 
-               (SPLIT_PART(call_duration, ':', 1)::int * 3600 + 
-                SPLIT_PART(call_duration, ':', 2)::int * 60 + 
-                SPLIT_PART(call_duration, ':', 3)::int)
+               CASE WHEN (SPLIT_PART(call_duration, ':', 1)::int * 3600 + 
+                          SPLIT_PART(call_duration, ':', 2)::int * 60 + 
+                          SPLIT_PART(call_duration, ':', 3)::int) >= 30 THEN
+                 (SPLIT_PART(call_duration, ':', 1)::int * 3600 + 
+                  SPLIT_PART(call_duration, ':', 2)::int * 60 + 
+                  SPLIT_PART(call_duration, ':', 3)::int)
+               ELSE 0 END
              WHEN call_duration ~ '^\\d+:\\d+$' THEN 
-               (SPLIT_PART(call_duration, ':', 1)::int * 60 + 
-                SPLIT_PART(call_duration, ':', 2)::int)
+               CASE WHEN (SPLIT_PART(call_duration, ':', 1)::int * 60 + 
+                          SPLIT_PART(call_duration, ':', 2)::int) >= 30 THEN
+                 (SPLIT_PART(call_duration, ':', 1)::int * 60 + 
+                  SPLIT_PART(call_duration, ':', 2)::int)
+               ELSE 0 END
              ELSE 0
            END
          ), 0) as talk_time_seconds
@@ -178,6 +186,10 @@ export async function GET(request: NextRequest) {
     // Uses the new timezone-aware helper that properly converts PKT to UTC
     const shiftTiming = getShiftStartTimeUTC(user.shift_start, user.shift_end);
     
+    // Check if this shift falls on a weekend (based on shift START date)
+    // Saturday/Sunday = Weekend (System Paused)
+    const isWeekend = isWeekendShift(user.shift_start, user.shift_end);
+    
     // Also get the legacy shift window for compatibility
     const shiftWindow = getCurrentShiftWindow(user.shift_start, user.shift_end);
     
@@ -194,18 +206,26 @@ export async function GET(request: NextRequest) {
     console.log(`   Shift Start (UTC): ${shiftTiming.shiftStartUTC.toISOString()}`);
     console.log(`   Shift End (UTC): ${shiftTiming.shiftEndUTC.toISOString()}`);
     
+    // Only count calls with duration >= 30 seconds for talk time calculation
     const shiftStats = await queryOne<ShiftStats>(
       `SELECT 
          COUNT(*) as calls_count,
          COALESCE(SUM(
            CASE 
              WHEN call_duration ~ '^\\d+:\\d+:\\d+$' THEN 
-               (SPLIT_PART(call_duration, ':', 1)::int * 3600 + 
-                SPLIT_PART(call_duration, ':', 2)::int * 60 + 
-                SPLIT_PART(call_duration, ':', 3)::int)
+               CASE WHEN (SPLIT_PART(call_duration, ':', 1)::int * 3600 + 
+                          SPLIT_PART(call_duration, ':', 2)::int * 60 + 
+                          SPLIT_PART(call_duration, ':', 3)::int) >= 30 THEN
+                 (SPLIT_PART(call_duration, ':', 1)::int * 3600 + 
+                  SPLIT_PART(call_duration, ':', 2)::int * 60 + 
+                  SPLIT_PART(call_duration, ':', 3)::int)
+               ELSE 0 END
              WHEN call_duration ~ '^\\d+:\\d+$' THEN 
-               (SPLIT_PART(call_duration, ':', 1)::int * 60 + 
-                SPLIT_PART(call_duration, ':', 2)::int)
+               CASE WHEN (SPLIT_PART(call_duration, ':', 1)::int * 60 + 
+                          SPLIT_PART(call_duration, ':', 2)::int) >= 30 THEN
+                 (SPLIT_PART(call_duration, ':', 1)::int * 60 + 
+                  SPLIT_PART(call_duration, ':', 2)::int)
+               ELSE 0 END
              ELSE 0
            END
          ), 0) as talk_time_seconds
@@ -217,13 +237,41 @@ export async function GET(request: NextRequest) {
     );
 
     // Get leads and sales_amount from daily_stats for the shift date (converted/qualified leads, NOT imported CSV leads)
-    const shiftDailyStatsResult = await queryOne<{ leads_count: string | number; sales_amount: string | number }>(
-      `SELECT COALESCE(leads_count, 0) as leads_count, COALESCE(sales_amount, 0) as sales_amount
-       FROM daily_stats 
-       WHERE user_id = $1 
-         AND date = $2`,
-      [userId, shiftTiming.shiftDatePKT]
+    // Calculate leads_count for current shift: count of approved leads reviewed in shift window
+    const leadsCountResult = await queryOne<{ count: string }>(
+      `SELECT COUNT(*)::int as count
+         FROM agent_leads
+        WHERE agent_id = $1
+          AND status = 'approved'
+          AND (reviewed_at >= $2 AND reviewed_at < $3)
+      `,
+      [userId, shiftTiming.shiftStartUTC.toISOString(), shiftTiming.shiftEndUTC.toISOString()]
     );
+    // Fallback: If no reviewed_at, fallback to created_at (legacy)
+    const fallbackLeadsCountResult = await queryOne<{ count: string }>(
+      `SELECT COUNT(*)::int as count
+         FROM agent_leads
+        WHERE agent_id = $1
+          AND status = 'approved'
+          AND (reviewed_at IS NULL AND created_at >= $2 AND created_at < $3)
+      `,
+      [userId, shiftTiming.shiftStartUTC.toISOString(), shiftTiming.shiftEndUTC.toISOString()]
+    );
+    const leads_count = Number(leadsCountResult?.count || 0) + Number(fallbackLeadsCountResult?.count || 0);
+    
+    // Calculate sales_amount for current shift: sum of approved sales in shift window
+    const salesAmountResult = await queryOne<{ total: string }>(
+      `SELECT COALESCE(SUM(total_deal_value), 0)::numeric as total
+         FROM sales
+        WHERE agent_id = $1
+          AND approval_status = 'approved'
+          AND (approved_at >= $2 AND approved_at < $3)
+      `,
+      [userId, shiftTiming.shiftStartUTC.toISOString(), shiftTiming.shiftEndUTC.toISOString()]
+    );
+    const sales_amount = Number(salesAmountResult?.total || 0);
+    
+    const shiftDailyStatsResult = { leads_count, sales_amount };
 
     // Merge daily_stats with call_logs data
     // call_logs has the real-time call data from 3CX
@@ -327,7 +375,8 @@ export async function GET(request: NextRequest) {
           todayPerformanceScore: salaryBreakdown.todayPerformanceScore,
           todayAttendanceMultiplier: salaryBreakdown.todayAttendanceMultiplier,
           
-          // Totals
+          // Totals (after late policy deduction)
+          totalEarnedBeforeDeduction: salaryBreakdown.totalEarnedBeforeDeduction,
           totalEarned: salaryBreakdown.totalEarned,
           projectedSalary: salaryBreakdown.projectedSalary,
           
@@ -344,6 +393,9 @@ export async function GET(request: NextRequest) {
           // For CheckInButton component
           check_in_time: attendanceRows.find(a => a.date === today)?.check_in_time || null,
           check_out_time: attendanceRows.find(a => a.date === today)?.check_out_time || null,
+          
+          // "3 Lates Free" Policy Info
+          latePolicy: salaryBreakdown.latePolicy,
         },
         
         // Performance summary
@@ -395,6 +447,10 @@ export async function GET(request: NextRequest) {
           systemLaunchDate: formatDateYMD(systemLaunchDate),
           currentDate: today,
         },
+        
+        // Weekend status - based on shift START date
+        // Saturday/Sunday shifts = Weekend (System Paused)
+        is_weekend: isWeekend,
       },
     });
   } catch (error) {

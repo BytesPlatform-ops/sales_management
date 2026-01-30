@@ -1,23 +1,15 @@
 /**
  * API Route: /api/agent/sales/[id]/payment
- * POST - Add a payment to an existing sale
+ * POST - Submit a payment for HR approval (does NOT update commission immediately)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
-import { getShiftStartTimeUTC } from '@/lib/attendance-utils';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
 );
-
-interface User {
-  id: number;
-  role: string;
-  shift_start: string;
-  shift_end: string;
-}
 
 interface Sale {
   id: string;
@@ -28,6 +20,16 @@ interface Sale {
   status: 'partial' | 'completed';
   commission_paid: boolean;
   commission_amount: string | number;
+  approval_status: string;
+}
+
+interface Payment {
+  id: string;
+  sale_id: string;
+  agent_id: number;
+  amount: string | number;
+  status: string;
+  created_at: string;
 }
 
 async function verifyAuth(request: NextRequest): Promise<{ userId: number; role: string } | null> {
@@ -65,7 +67,7 @@ export async function POST(
 
     if (auth.role !== 'agent') {
       return NextResponse.json(
-        { status: 'error', message: 'Only agents can add payments' },
+        { status: 'error', message: 'Only agents can submit payments' },
         { status: 403 }
       );
     }
@@ -95,6 +97,14 @@ export async function POST(
       );
     }
 
+    // Check if sale is approved first
+    if (sale.approval_status !== 'approved') {
+      return NextResponse.json(
+        { status: 'error', message: 'Sale must be approved before adding payments' },
+        { status: 400 }
+      );
+    }
+
     if (sale.status === 'completed') {
       return NextResponse.json(
         { status: 'error', message: 'Sale is already completed' },
@@ -102,98 +112,69 @@ export async function POST(
       );
     }
 
-    const currentCollected = Number(sale.amount_collected);
-    const totalDealValue = Number(sale.total_deal_value);
-    const remaining = totalDealValue - currentCollected;
-
-    // Cap the payment at the remaining amount
-    const actualPayment = Math.min(amount, remaining);
-    const newAmountCollected = currentCollected + actualPayment;
-    
-    // Check if this completes the sale
-    const isCompleted = newAmountCollected >= totalDealValue;
-    const newStatus = isCompleted ? 'completed' : 'partial';
-    
-    // Calculate commission if completing
-    const commissionAmount = isCompleted ? totalDealValue * 0.05 : 0;
-
-    // Update the sale
-    const updatedSale = await query<Sale>(
-      `UPDATE sales 
-       SET amount_collected = $1, 
-           status = $2, 
-           commission_paid = $3,
-           commission_amount = $4
-       WHERE id = $5
-       RETURNING *`,
-      [newAmountCollected, newStatus, isCompleted, commissionAmount, saleId]
+    // Get total approved payments for this sale
+    const approvedPaymentsResult = await queryOne<{ total: string }>(
+      `SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE sale_id = $1 AND status = 'approved'`,
+      [saleId]
     );
+    const approvedPayments = Number(approvedPaymentsResult?.total || 0);
+    
+    // Get total pending payments for this sale
+    const pendingPaymentsResult = await queryOne<{ total: string }>(
+      `SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE sale_id = $1 AND status = 'pending'`,
+      [saleId]
+    );
+    const pendingPayments = Number(pendingPaymentsResult?.total || 0);
 
-    console.log(`💳 Payment added to sale ${saleId}:`);
-    console.log(`   Customer: ${sale.customer_name}`);
-    console.log(`   Payment: $${actualPayment}`);
-    console.log(`   New Total Collected: $${newAmountCollected} / $${totalDealValue}`);
-    console.log(`   Status: ${newStatus}`);
+    const totalDealValue = Number(sale.total_deal_value);
+    const currentCollected = Number(sale.amount_collected);
+    const remaining = totalDealValue - currentCollected - pendingPayments;
 
-    // If completed, add commission to daily earnings
-    let commissionAddedToEarnings = false;
-    if (isCompleted && !sale.commission_paid) {
-      // Get user's shift info
-      const user = await queryOne<User>(
-        'SELECT id, role, shift_start, shift_end FROM users WHERE id = $1',
-        [auth.userId]
+    if (amount > remaining) {
+      return NextResponse.json(
+        { status: 'error', message: `Payment exceeds remaining amount. Maximum allowed: $${remaining.toFixed(2)}` },
+        { status: 400 }
       );
-
-      if (user) {
-        const shiftTiming = getShiftStartTimeUTC(user.shift_start, user.shift_end);
-        const shiftDate = shiftTiming.shiftDatePKT;
-
-        // Add commission to daily_stats.sales_amount as bonus
-        // Note: The original deal value was already added when the sale was created
-        // This commission is an additional reward for completing the sale
-        await query(
-          `INSERT INTO daily_stats (user_id, date, calls_count, talk_time_seconds, leads_count, sales_amount)
-           VALUES ($1, $2, 0, 0, 0, $3)
-           ON CONFLICT (user_id, date)
-           DO UPDATE SET 
-             sales_amount = daily_stats.sales_amount + $3,
-             updated_at = NOW()`,
-          [auth.userId, shiftDate, commissionAmount]
-        );
-
-        commissionAddedToEarnings = true;
-        console.log(`   🎉 Commission earned and added to earnings: $${commissionAmount.toFixed(2)}`);
-      }
     }
 
-    const result = updatedSale[0];
+    // Insert payment as pending (does NOT update sale or commission)
+    const paymentResult = await query<Payment>(
+      `INSERT INTO payments (sale_id, agent_id, amount, status)
+       VALUES ($1, $2, $3, 'pending')
+       RETURNING *`,
+      [saleId, auth.userId, amount]
+    );
+
+    const payment = paymentResult[0];
+
+    console.log(`🕒 Payment submitted for approval:`);
+    console.log(`   Sale: ${sale.customer_name}`);
+    console.log(`   Amount: $${amount}`);
+    console.log(`   Status: pending approval`);
 
     return NextResponse.json({
       status: 'success',
-      message: isCompleted 
-        ? `Payment received! Sale completed. Commission of $${commissionAmount.toFixed(2)} added to your earnings!`
-        : `Payment of $${actualPayment.toFixed(2)} received`,
+      message: 'Payment submitted for approval.',
       data: {
-        sale: {
-          id: result.id,
-          customerName: result.customer_name,
-          totalDealValue: Number(result.total_deal_value),
-          amountCollected: Number(result.amount_collected),
-          status: result.status,
-          commissionPaid: result.commission_paid,
-          commissionAmount: Number(result.commission_amount || 0),
-          progress: Math.round((Number(result.amount_collected) / Number(result.total_deal_value)) * 100),
+        payment: {
+          id: payment.id,
+          saleId: payment.sale_id,
+          amount: Number(payment.amount),
+          status: payment.status,
         },
-        paymentAmount: actualPayment,
-        isCompleted,
-        commissionEarned: isCompleted ? commissionAmount : 0,
-        commissionAddedToEarnings,
+        sale: {
+          customerName: sale.customer_name,
+          totalDealValue: totalDealValue,
+          amountCollected: currentCollected,
+          pendingPayments: pendingPayments + amount,
+          remaining: remaining - amount,
+        },
       },
     });
   } catch (error) {
-    console.error('Add payment error:', error);
+    console.error('Submit payment error:', error);
     return NextResponse.json(
-      { status: 'error', message: 'Failed to add payment' },
+      { status: 'error', message: 'Failed to submit payment' },
       { status: 500 }
     );
   }

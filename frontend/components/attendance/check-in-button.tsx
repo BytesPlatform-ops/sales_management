@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { api } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { formatTime } from '@/lib/utils';
-import { Clock, LogIn, LogOut, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Clock, LogIn, LogOut, CheckCircle, AlertTriangle, PartyPopper } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface CheckInButtonProps {
@@ -14,6 +14,7 @@ interface CheckInButtonProps {
     status: string;
   } | null;
   onUpdate: () => void;
+  isWeekend?: boolean;
 }
 
 // Dynamic styles based on attendance status
@@ -62,7 +63,7 @@ const getStatusStyles = (status: string) => {
   }
 };
 
-export function CheckInButton({ attendance, onUpdate }: CheckInButtonProps) {
+export function CheckInButton({ attendance, onUpdate, isWeekend = false }: CheckInButtonProps) {
   const [loading, setLoading] = useState(false);
 
   const handleCheckIn = async (status: 'on_time' | 'late') => {
@@ -88,6 +89,22 @@ export function CheckInButton({ attendance, onUpdate }: CheckInButtonProps) {
       setLoading(false);
     }
   };
+
+  // Weekend - System Paused
+  if (isWeekend) {
+    return (
+      <div className="bg-gradient-to-br from-purple-50 to-indigo-50 rounded-xl p-6 border border-purple-200 shadow-sm h-full flex flex-col justify-center items-center text-center">
+        <PartyPopper className="h-12 w-12 text-purple-500 mb-3" />
+        <h3 className="text-xl font-bold text-purple-700 mb-2">Happy Weekend! 🎉</h3>
+        <p className="text-purple-600 text-sm">
+          System paused for the weekend.
+        </p>
+        <p className="text-purple-500 text-xs mt-2">
+          Attendance is not tracked on Saturday & Sunday shifts.
+        </p>
+      </div>
+    );
+  }
 
   // Not checked in yet
   if (!attendance?.check_in_time) {

@@ -6,6 +6,8 @@ import { api } from '@/lib/api-client';
 import { StatsCard } from '@/components/dashboard/stats-card';
 import { Leaderboard } from '@/components/dashboard/leaderboard';
 import { PendingLeadsFeed } from '@/components/dashboard/pending-leads-feed';
+import { PendingSalesFeed } from '@/components/dashboard/pending-sales-feed';
+import { PendingPaymentsFeed } from '@/components/dashboard/pending-payments-feed';
 import { Button } from '@/components/ui/button';
 import { formatDuration, getGreeting } from '@/lib/utils';
 import { Users, Phone, Clock, AlertCircle, RefreshCw } from 'lucide-react';
@@ -122,6 +124,20 @@ export default function HRDashboard() {
         {/* Leaderboard */}
         <div>
           <Leaderboard type="daily" />
+        </div>
+      </div>
+
+      {/* Pending Sales Approvals - Real-time */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2">
+          <PendingSalesFeed />
+        </div>
+      </div>
+
+      {/* Pending Payment Approvals - Real-time */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2">
+          <PendingPaymentsFeed />
         </div>
       </div>
 

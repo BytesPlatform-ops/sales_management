@@ -57,6 +57,11 @@ export function getMinutesDifference(shiftStart: Date, currentTime: Date): numbe
 
 /**
  * Determine attendance status based on shift start and current time
+ * 
+ * Attendance Rules:
+ * - 0-30 mins late: on_time (grace period)
+ * - 31-90 mins late: late (first 3 lates/month FREE, 4th+ = 0.5 day deduction)
+ * - 91+ mins late: half_day (0.5 day deduction)
  */
 export function determineAttendanceStatus(
   shiftStartStr: string
@@ -69,7 +74,7 @@ export function determineAttendanceStatus(
   const shiftStart = parseShiftTimeToday(shiftStartStr);
   const minutesLate = getMinutesDifference(shiftStart, currentTime);
 
-  // Early or within grace period
+  // Early or within grace period (0-30 mins)
   if (minutesLate <= ATTENDANCE_RULES.GRACE_PERIOD) {
     return {
       status: 'on_time',
@@ -80,20 +85,20 @@ export function determineAttendanceStatus(
     };
   }
 
-  // Late (31-90 minutes)
+  // Late (31-90 minutes) - "3 Lates Free" policy applies
   if (minutesLate <= ATTENDANCE_RULES.LATE_THRESHOLD) {
     return {
       status: 'late',
       minutesLate,
-      message: `You're ${minutesLate} minutes late. 50% salary deduction for today.`,
+      message: `You're ${minutesLate} minutes late. Remember: First 3 lates/month are FREE, 4th+ = half-day deduction.`,
     };
   }
 
-  // Half day (91+ minutes)
+  // Half day (91+ minutes) - Always 0.5 day deduction
   return {
     status: 'half_day',
     minutesLate,
-    message: `You're ${minutesLate} minutes late. Marked as half day.`,
+    message: `You're ${minutesLate} minutes late. Marked as half day (0.5 day deduction).`,
   };
 }
 
@@ -359,4 +364,57 @@ export function getAttendanceDate(shiftStartStr: string, shiftEndStr: string): s
 
   // For normal shifts or after shift ends, use today's date
   return getTodayDateKarachi();
+}
+
+/**
+ * Get the shift start date as a Date object (for weekend checking)
+ * 
+ * For overnight shifts (e.g., 9 PM - 5 AM / 21:00 - 05:00):
+ * - If current time is 10 PM → shift started today
+ * - If current time is 2 AM → shift started yesterday
+ * 
+ * Returns the Date object representing when this shift STARTED.
+ * This is used to determine if it's a "weekend shift" based on the START date.
+ */
+export function getShiftStartDateObject(shiftStartStr: string, shiftEndStr: string): Date {
+  const now = getCurrentTimeKarachi();
+  const currentHour = now.getHours();
+  const shiftStartHour = parseInt(shiftStartStr.split(':')[0], 10);
+  const shiftEndHour = parseInt(shiftEndStr.split(':')[0], 10);
+
+  // For overnight shifts (e.g., 21:00 - 05:00, where start > end)
+  if (shiftStartHour > shiftEndHour) {
+    // If current time is after midnight but before shift end
+    // e.g., 0:00 - 5:00 for a 21:00 - 05:00 shift
+    if (currentHour >= 0 && currentHour < shiftEndHour) {
+      // Shift started yesterday
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      yesterday.setHours(0, 0, 0, 0);
+      return yesterday;
+    }
+  }
+
+  // For normal shifts or if we're in the evening part of overnight shift
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  return today;
+}
+
+/**
+ * Check if the current shift falls on a weekend
+ * 
+ * Weekend Logic for Overnight Shifts:
+ * - Work day is determined by SHIFT START date, not end date
+ * - Friday Night (Starts Fri 9 PM): Working Day
+ * - Saturday Night (Starts Sat 9 PM): Weekend (System Paused)
+ * - Sunday Night (Starts Sun 9 PM): Weekend (System Paused)
+ * - Monday Night (Starts Mon 9 PM): Working Day
+ */
+export function isWeekendShift(shiftStartStr: string, shiftEndStr: string): boolean {
+  const shiftStartDate = getShiftStartDateObject(shiftStartStr, shiftEndStr);
+  const dayOfWeek = shiftStartDate.getDay();
+  
+  // Saturday = 6, Sunday = 0
+  return dayOfWeek === 0 || dayOfWeek === 6;
 }

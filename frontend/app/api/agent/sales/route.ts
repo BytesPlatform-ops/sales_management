@@ -168,66 +168,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Determine initial status
-    const status = payment >= totalDealValue ? 'completed' : 'partial';
-    const commissionAmount = status === 'completed' ? totalDealValue * 0.05 : 0;
-
-    // Get user's shift info for updating daily_stats
-    const user = await queryOne<User>(
-      'SELECT id, role, shift_start, shift_end FROM users WHERE id = $1',
-      [auth.userId]
-    );
-
-    if (!user) {
-      return NextResponse.json(
-        { status: 'error', message: 'User not found' },
-        { status: 404 }
-      );
-    }
-
-    // Get shift date for sales_amount tracking
-    const shiftTiming = getShiftStartTimeUTC(user.shift_start, user.shift_end);
-    const shiftDate = shiftTiming.shiftDatePKT;
-
-    // Insert the sale
+    // Insert the sale as pending approval
     const saleResult = await query<Sale>(
-      `INSERT INTO sales (agent_id, customer_name, total_deal_value, amount_collected, status, commission_paid, commission_amount)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO sales (agent_id, customer_name, total_deal_value, amount_collected, status, commission_paid, commission_amount, approval_status)
+       VALUES ($1, $2, $3, $4, 'partial', false, 0, 'pending')
        RETURNING *`,
-      [auth.userId, customerName.trim(), totalDealValue, payment, status, status === 'completed', commissionAmount]
+      [auth.userId, customerName.trim(), totalDealValue, payment]
     );
 
     const sale = saleResult[0];
 
-    // Update daily_stats with the TOTAL DEAL VALUE (for Golden Ticket progress)
-    // This adds the full deal value to sales_amount immediately
-    await query(
-      `INSERT INTO daily_stats (user_id, date, calls_count, talk_time_seconds, leads_count, sales_amount)
-       VALUES ($1, $2, 0, 0, 0, $3)
-       ON CONFLICT (user_id, date)
-       DO UPDATE SET 
-         sales_amount = daily_stats.sales_amount + $3,
-         updated_at = NOW()`,
-      [auth.userId, shiftDate, totalDealValue]
-    );
-
-    console.log(`💰 Sale created for agent ${auth.userId}:`);
+    console.log(`🕒 Sale submitted for approval by agent ${auth.userId}:`);
     console.log(`   Customer: ${customerName}`);
     console.log(`   Total Deal: $${totalDealValue}`);
     console.log(`   Initial Payment: $${payment}`);
-    console.log(`   Status: ${status}`);
-    console.log(`   Added to Golden Ticket progress: $${totalDealValue}`);
-
-    // If completed immediately, log commission
-    if (status === 'completed') {
-      console.log(`   🎉 Commission earned: $${commissionAmount.toFixed(2)}`);
-    }
+    console.log(`   Status: pending approval`);
 
     return NextResponse.json({
       status: 'success',
-      message: status === 'completed' 
-        ? `Sale completed! Commission of $${commissionAmount.toFixed(2)} earned!`
-        : 'Sale logged successfully',
+      message: 'Sale submitted for approval.',
       data: {
         sale: {
           id: sale.id,
@@ -239,8 +198,6 @@ export async function POST(request: NextRequest) {
           commissionAmount: Number(sale.commission_amount || 0),
           progress: Math.round((Number(sale.amount_collected) / Number(sale.total_deal_value)) * 100),
         },
-        goldenTicketAdded: totalDealValue,
-        commissionEarned: status === 'completed' ? commissionAmount : 0,
       },
     });
   } catch (error) {

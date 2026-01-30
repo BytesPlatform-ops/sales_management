@@ -56,12 +56,19 @@ export async function GET(request: NextRequest) {
            COALESCE(SUM(
              CASE 
                WHEN call_duration ~ '^\\d+:\\d+:\\d+$' THEN 
-                 (SPLIT_PART(call_duration, ':', 1)::int * 3600 + 
-                  SPLIT_PART(call_duration, ':', 2)::int * 60 + 
-                  SPLIT_PART(call_duration, ':', 3)::int)
+                 CASE WHEN (SPLIT_PART(call_duration, ':', 1)::int * 3600 + 
+                            SPLIT_PART(call_duration, ':', 2)::int * 60 + 
+                            SPLIT_PART(call_duration, ':', 3)::int) >= 30 THEN
+                   (SPLIT_PART(call_duration, ':', 1)::int * 3600 + 
+                    SPLIT_PART(call_duration, ':', 2)::int * 60 + 
+                    SPLIT_PART(call_duration, ':', 3)::int)
+                 ELSE 0 END
                WHEN call_duration ~ '^\\d+:\\d+$' THEN 
-                 (SPLIT_PART(call_duration, ':', 1)::int * 60 + 
-                  SPLIT_PART(call_duration, ':', 2)::int)
+                 CASE WHEN (SPLIT_PART(call_duration, ':', 1)::int * 60 + 
+                            SPLIT_PART(call_duration, ':', 2)::int) >= 30 THEN
+                   (SPLIT_PART(call_duration, ':', 1)::int * 60 + 
+                    SPLIT_PART(call_duration, ':', 2)::int)
+                 ELSE 0 END
                ELSE 0
              END
            ), 0) as call_log_seconds

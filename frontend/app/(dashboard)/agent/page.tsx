@@ -305,6 +305,7 @@ export default function AgentDashboard() {
               status: data.attendance?.todayStatus || 'absent',
             }}
             onUpdate={() => mutate()}
+            isWeekend={data.is_weekend || false}
           />
         </div>
       </div>

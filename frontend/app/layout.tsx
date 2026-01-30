@@ -5,7 +5,7 @@ import './globals.css';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Salary Gamification System',
+  title: 'Salary System',
   description: 'Sales Team Performance & Salary Dashboard',
 };
 
