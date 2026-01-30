@@ -33,7 +33,7 @@ export async function login(username: string, password: string): Promise<LoginRe
       role: user.role,
     },
     env.JWT_SECRET,
-    { expiresIn: env.JWT_EXPIRES_IN }
+    { expiresIn: '7d' }
   );
 
   const { password: _, ...userWithoutPassword } = user;

@@ -51,7 +51,7 @@ export function PowerDialer({ agentExtension, userId, onCallComplete }: PowerDia
   useEffect(() => {
     async function fetchLeadsPreview() {
       try {
-        const response = await api.getNextLead();
+        const response = await api.getNextLead() as any;
         if (response.data) {
           // Show the first lead as "next up" and the rest as upcoming
           const firstLead = response.data;
@@ -96,7 +96,7 @@ export function PowerDialer({ agentExtension, userId, onCallComplete }: PowerDia
 
       const lead = nextResponse.data as Lead;
       setCurrentLead(lead);
-      setUpcomingLeads(nextResponse.upcoming || []);
+      setUpcomingLeads((nextResponse as any).upcoming || []);
 
       // 2. Initiate call via 3CX
       const callResponse = await api.initiateCall(lead.id, agentExtension);

@@ -121,18 +121,26 @@ export async function upsertStats(
 
 export async function syncFromCallLogs(userId: number, extensionNumber: string, date: string): Promise<DailyStats> {
   // Fetch from call_logs table (from 3CX webhook)
+  // Only count calls with duration >= 30 seconds for talk time
   const callData = await queryOne<{ calls: string; seconds: string }>(
     `SELECT 
        COUNT(*) as calls,
        COALESCE(SUM(
          CASE 
            WHEN call_duration ~ '^[0-9]+:[0-9]+:[0-9]+$' THEN
-             SPLIT_PART(call_duration, ':', 1)::int * 3600 +
-             SPLIT_PART(call_duration, ':', 2)::int * 60 +
-             SPLIT_PART(call_duration, ':', 3)::int
+             CASE WHEN (SPLIT_PART(call_duration, ':', 1)::int * 3600 +
+                        SPLIT_PART(call_duration, ':', 2)::int * 60 +
+                        SPLIT_PART(call_duration, ':', 3)::int) >= 30 THEN
+               SPLIT_PART(call_duration, ':', 1)::int * 3600 +
+               SPLIT_PART(call_duration, ':', 2)::int * 60 +
+               SPLIT_PART(call_duration, ':', 3)::int
+             ELSE 0 END
            WHEN call_duration ~ '^[0-9]+:[0-9]+$' THEN
-             SPLIT_PART(call_duration, ':', 1)::int * 60 +
-             SPLIT_PART(call_duration, ':', 2)::int
+             CASE WHEN (SPLIT_PART(call_duration, ':', 1)::int * 60 +
+                        SPLIT_PART(call_duration, ':', 2)::int) >= 30 THEN
+               SPLIT_PART(call_duration, ':', 1)::int * 60 +
+               SPLIT_PART(call_duration, ':', 2)::int
+             ELSE 0 END
            ELSE 0
          END
        ), 0) as seconds
