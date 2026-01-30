@@ -116,28 +116,16 @@ export default function HRDashboard() {
 
       {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Pending Lead Verifications - Real-time */}
-        <div className="lg:col-span-2">
+        {/* Left Column - Pending Items */}
+        <div className="lg:col-span-2 space-y-4">
           <PendingLeadsFeed />
+          <PendingSalesFeed />
+          <PendingPaymentsFeed />
         </div>
 
-        {/* Leaderboard */}
+        {/* Right Column - Leaderboard */}
         <div>
           <Leaderboard type="daily" />
-        </div>
-      </div>
-
-      {/* Pending Sales Approvals - Real-time */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <PendingSalesFeed />
-        </div>
-      </div>
-
-      {/* Pending Payment Approvals - Real-time */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <PendingPaymentsFeed />
         </div>
       </div>
 

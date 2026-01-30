@@ -71,12 +71,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (response.data?.user) {
       setUser(response.data.user);
       
-      // Redirect based on role
-      if (response.data.user.role === 'hr') {
-        router.push('/hr');
-      } else {
-        router.push('/agent');
-      }
+      // Note: Redirect is handled by the login page's animated transition
+      // Do not redirect here to avoid race conditions
 
       return {
         user: response.data.user,

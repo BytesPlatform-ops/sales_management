@@ -4,6 +4,9 @@ import { useState, useRef } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Clock, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
+import { SpotlightCard } from '@/components/ui/SpotlightCard';
+import { GamifiedSubmitButton } from '@/components/ui/GamifiedSubmitButton';
+import { useRouter } from 'next/navigation';
 
 interface AttendanceInfo {
   isNewRecord: boolean;
@@ -214,31 +217,52 @@ function YetiAvatar({
 
 export default function LoginPage() {
   const { login } = useAuth();
+  const router = useRouter();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
   const [attendance, setAttendance] = useState<AttendanceInfo | null>(null);
   const [isPasswordFocused, setIsPasswordFocused] = useState(false);
+  
+  // Use ref for role to avoid async state issues
+  const userRoleRef = useRef<'hr' | 'agent' | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Handler for GamifiedSubmitButton - returns true for success, false for error
+  const handleGamifiedSubmit = async (): Promise<boolean> => {
     setError('');
     setAttendance(null);
-    setLoading(true);
 
     try {
       const result = await login(username, password);
       
       if (result?.attendance?.isNewRecord) {
         setAttendance(result.attendance);
-        await new Promise(resolve => setTimeout(resolve, 3000));
       }
+      // Store the user's role for redirect (using ref for immediate access)
+      if (result?.user?.role) {
+        userRoleRef.current = result.user.role;
+      }
+      return true; // Success
     } catch (err: any) {
       setError(err.message || 'Login failed');
-    } finally {
-      setLoading(false);
+      return false; // Error
     }
+  };
+
+  // Handle page transition after success animation
+  const handleTransitionComplete = () => {
+    // Redirect based on user role (read from ref for immediate value)
+    if (userRoleRef.current === 'hr') {
+      router.push('/hr');
+    } else {
+      router.push('/agent');
+    }
+  };
+
+  // Legacy form submit (for Enter key support)
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    // The button handles the actual submission
   };
 
   const getAttendanceStyles = (status: string) => {
@@ -300,24 +324,20 @@ export default function LoginPage() {
           <YetiAvatar 
             isPasswordFocused={isPasswordFocused}
             emailLength={username.length}
-            isLoading={loading}
+            isLoading={false}
           />
         </motion.div>
 
-        {/* Glassmorphic Card */}
-        <motion.div 
-          className="backdrop-blur-xl bg-white/70 rounded-3xl shadow-2xl p-8 pt-16 border border-white/50"
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ type: 'spring', stiffness: 200, damping: 15 }}
-        >
-          {/* Header */}
-          <div className="text-center mb-6">
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-              Welcome Back!
-            </h1>
-            <p className="text-gray-500 mt-1 text-sm">Sign in to your Salary System account</p>
-          </div>
+        {/* Glassmorphic Card with Spotlight Effect */}
+        <SpotlightCard className="w-full">
+          <div className="p-8 pt-16">
+            {/* Header */}
+            <div className="text-center mb-6">
+              <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                Welcome Back!
+              </h1>
+              <p className="text-gray-500 mt-1 text-sm">Sign in to your Salary System account</p>
+            </div>
 
           {/* Attendance Notification */}
           <AnimatePresence>
@@ -392,23 +412,14 @@ export default function LoginPage() {
               />
             </div>
 
-            {/* Sign In Button */}
-            <motion.button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3 px-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold rounded-xl shadow-lg shadow-indigo-500/30 disabled:opacity-70 disabled:cursor-not-allowed transition-all duration-200"
-              whileHover={{ scale: loading ? 1 : 1.02 }}
-              whileTap={{ scale: loading ? 1 : 0.98 }}
+            {/* Gamified Sign In Button */}
+            <GamifiedSubmitButton
+              onClick={handleGamifiedSubmit}
+              disabled={!username || !password}
+              onTransitionComplete={handleTransitionComplete}
             >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  Signing in...
-                </span>
-              ) : (
-                'Sign In'
-              )}
-            </motion.button>
+              Sign In
+            </GamifiedSubmitButton>
           </form>
 
           {/* Timezone */}
@@ -421,7 +432,8 @@ export default function LoginPage() {
             <Clock className="h-3 w-3" />
             Timezone: Asia/Karachi
           </motion.div>
-        </motion.div>
+          </div>
+        </SpotlightCard>
       </div>
     </div>
   );
