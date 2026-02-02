@@ -8,6 +8,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { CheckInButton } from '@/components/attendance/check-in-button';
 import { formatCurrency, getGreeting } from '@/lib/utils';
+import { getDailyTargets } from '@/lib/salary-utils';
 import { Phone, Clock, Target, Plus, TrendingUp, Sparkles, Loader2, DollarSign, Trophy, X, Hand, BarChart3, Calendar, CheckCircle2, User, CreditCard, Receipt } from 'lucide-react';
 import {
   Dialog,
@@ -190,10 +191,14 @@ export default function AgentDashboard() {
   const todayStats = data.today || { calls: 0, talkTime: 0, leads: 0, salesAmount: 0, salesTarget: 0, targetHit: false, performanceScore: 0 };
   const earnedToday = data.salary?.todayEarnings || 0;
   
+  // Get targets based on employment type
+  const employmentType = user?.employment_type || 'full_time';
+  const targets = getDailyTargets(employmentType);
+  
   // Calculate percentages for gauges (capped at 100%)
-  const callsPercent = Math.min((todayStats.calls / 250) * 100, 100);
-  const talkTimePercent = Math.min((todayStats.talkTime / 3600) * 100, 100);
-  const leadsPercent = Math.min((todayStats.leads / 3) * 100, 100);
+  const callsPercent = Math.min((todayStats.calls / targets.calls) * 100, 100);
+  const talkTimePercent = Math.min((todayStats.talkTime / targets.talk_time_seconds) * 100, 100);
+  const leadsPercent = Math.min((todayStats.leads / targets.leads) * 100, 100);
   
   // Sales target percentage (only if target is set)
   const salesTarget = todayStats.salesTarget || 0;
@@ -328,7 +333,7 @@ export default function AgentDashboard() {
                 </div>
                 <div>
                   <h3 className="font-semibold text-gray-900">Calls</h3>
-                  <p className="text-sm text-gray-500">Target: 250</p>
+                  <p className="text-sm text-gray-500">Target: {targets.calls}</p>
                 </div>
               </div>
             </div>
@@ -348,7 +353,7 @@ export default function AgentDashboard() {
               </div>
             </div>
             <p className="text-center text-sm text-gray-500 mt-4">
-              {todayStats.calls} / 250 ({Math.round(callsPercent)}%)
+              {todayStats.calls} / {targets.calls} ({Math.round(callsPercent)}%)
             </p>
           </div>
 
@@ -361,7 +366,7 @@ export default function AgentDashboard() {
               </div>
               <div>
                 <h3 className="font-semibold text-gray-900">Talk Time</h3>
-                <p className="text-sm text-gray-500">Target: 1 hour</p>
+                <p className="text-sm text-gray-500">Target: {formatTalkTime(targets.talk_time_seconds)}</p>
               </div>
             </div>
           </div>
@@ -381,7 +386,7 @@ export default function AgentDashboard() {
             </div>
           </div>
           <p className="text-center text-sm text-gray-500 mt-4">
-            {formatTalkTime(todayStats.talkTime)} / 1hr ({Math.round(talkTimePercent)}%)
+            {formatTalkTime(todayStats.talkTime)} / {formatTalkTime(targets.talk_time_seconds)} ({Math.round(talkTimePercent)}%)
           </p>
         </div>
 
@@ -394,7 +399,7 @@ export default function AgentDashboard() {
               </div>
               <div>
                 <h3 className="font-semibold text-gray-900">Leads</h3>
-                <p className="text-sm text-gray-500">Target: 3</p>
+                <p className="text-sm text-gray-500">Target: {targets.leads}</p>
               </div>
             </div>
           </div>
@@ -414,7 +419,7 @@ export default function AgentDashboard() {
             </div>
           </div>
           <p className="text-center text-sm text-gray-500 mt-4">
-            {todayStats.leads} / 3 ({Math.round(leadsPercent)}%)
+            {todayStats.leads} / {targets.leads} ({Math.round(leadsPercent)}%)
           </p>
         </div>
 

@@ -34,12 +34,25 @@ export const PERFORMANCE_WEIGHTS = {
 };
 
 // Target values for 100% performance (Step 5 Formula)
-// CallScore = (calls / 250) * 0.40, TalkScore = (seconds / 3600) * 0.30, LeadScore = (leads / 3) * 0.30
 export const DAILY_TARGETS = {
-  calls: 250,               // 250 calls for max call score
-  talk_time_seconds: 3600,  // 1 hour (3600 seconds) for max talk score
-  leads: 3,                 // 3 leads for max lead score
+  full_time: {
+    calls: 150,               // 150 calls for max call score
+    talk_time_seconds: 3600,  // 1 hour (3600 seconds) for max talk score
+    leads: 3,                 // 3 leads for max lead score
+  },
+  part_time: {
+    calls: 75,                // 75 calls for max call score
+    talk_time_seconds: 1800,  // 30 minutes (1800 seconds) for max talk score
+    leads: 2,                 // 2 leads for max lead score
+  },
 };
+
+/**
+ * Get daily targets based on employment type
+ */
+export function getDailyTargets(employmentType: 'full_time' | 'part_time' = 'full_time') {
+  return DAILY_TARGETS[employmentType];
+}
 
 export interface DailyStats {
   date: string;
@@ -109,20 +122,25 @@ export interface SalaryBreakdown {
 /**
  * Calculate performance score (0-1.0) based on daily stats
  * Step 5 Formula:
- * - CallScore = (calls / 250) * 0.40 (Cap at 0.4)
- * - TalkScore = (seconds / 3600) * 0.30 (Cap at 0.3)
- * - LeadScore = (leads / 3) * 0.30 (Cap at 0.3)
+ * - CallScore = (calls / target) * 0.40 (Cap at 0.4)
+ * - TalkScore = (seconds / target) * 0.30 (Cap at 0.3)
+ * - LeadScore = (leads / target) * 0.30 (Cap at 0.3)
  * - TotalMultiplier = CallScore + TalkScore + LeadScore (Max 1.0)
+ * 
+ * For full_time: targets are 150 calls, 3600s talk time, 3 leads
+ * For part_time: targets are 75 calls, 1800s talk time, 2 leads
  */
-export function calculatePerformanceScore(stats: DailyStats): number {
-  // CallScore: (calls / 250) * 0.40, capped at 0.40
-  const callsScore = Math.min((stats.calls_count / DAILY_TARGETS.calls) * PERFORMANCE_WEIGHTS.calls, PERFORMANCE_WEIGHTS.calls);
+export function calculatePerformanceScore(stats: DailyStats, employmentType: 'full_time' | 'part_time' = 'full_time'): number {
+  const targets = getDailyTargets(employmentType);
   
-  // TalkScore: (seconds / 3600) * 0.30, capped at 0.30
-  const talkTimeScore = Math.min((stats.talk_time_seconds / DAILY_TARGETS.talk_time_seconds) * PERFORMANCE_WEIGHTS.talk_time, PERFORMANCE_WEIGHTS.talk_time);
+  // CallScore: (calls / target) * 0.40, capped at 0.40
+  const callsScore = Math.min((stats.calls_count / targets.calls) * PERFORMANCE_WEIGHTS.calls, PERFORMANCE_WEIGHTS.calls);
   
-  // LeadScore: (leads / 3) * 0.30, capped at 0.30
-  const leadsScore = Math.min((stats.leads_count / DAILY_TARGETS.leads) * PERFORMANCE_WEIGHTS.leads, PERFORMANCE_WEIGHTS.leads);
+  // TalkScore: (seconds / target) * 0.30, capped at 0.30
+  const talkTimeScore = Math.min((stats.talk_time_seconds / targets.talk_time_seconds) * PERFORMANCE_WEIGHTS.talk_time, PERFORMANCE_WEIGHTS.talk_time);
+  
+  // LeadScore: (leads / target) * 0.30, capped at 0.30
+  const leadsScore = Math.min((stats.leads_count / targets.leads) * PERFORMANCE_WEIGHTS.leads, PERFORMANCE_WEIGHTS.leads);
   
   // TotalMultiplier = sum of all scores (max 1.0)
   const totalMultiplier = callsScore + talkTimeScore + leadsScore;
@@ -213,7 +231,8 @@ export function calculateSalaryBreakdown(
   dailyStats: DailyStats[],
   attendanceRecords: AttendanceRecord[],
   todayStats?: DailyStats,
-  todayAttendance?: AttendanceRecord
+  todayAttendance?: AttendanceRecord,
+  employmentType: 'full_time' | 'part_time' = 'full_time'
 ): SalaryBreakdown {
   const now = getCurrentDateKarachi();
   const today = formatDateYMD(now);
@@ -253,7 +272,7 @@ export function calculateSalaryBreakdown(
     const attendance = attendanceRecord?.status || 'absent';
     const hrApproved = attendanceRecord?.hr_approved || false;
     
-    const performanceScore = calculatePerformanceScore(stats);
+    const performanceScore = calculatePerformanceScore(stats, employmentType);
     const dayEarnings = calculateDailyEarnings(dailyPotential, performanceScore, attendance, hrApproved);
     
     activeEarnings += dayEarnings;
@@ -290,7 +309,7 @@ export function calculateSalaryBreakdown(
   let todayAttendanceMultiplier = 0;
   
   if (todayStats && todayAttendance) {
-    todayPerformanceScore = calculatePerformanceScore(todayStats);
+    todayPerformanceScore = calculatePerformanceScore(todayStats, employmentType);
     todayAttendanceMultiplier = ATTENDANCE_MULTIPLIERS[todayAttendance.status];
     const todayHrApproved = todayAttendance.hr_approved || false;
     

@@ -25,6 +25,7 @@ interface Agent {
   base_salary: number;
   shift_start: string;
   shift_end: string;
+  employment_type?: 'full_time' | 'part_time';
 }
 
 interface DailyStatsRow {
@@ -116,7 +117,7 @@ export async function GET(request: NextRequest) {
     
     // 3. Get all agents
     const agents = await query<Agent>(
-      `SELECT id, username, full_name, extension_number, base_salary, shift_start, shift_end
+      `SELECT id, username, full_name, extension_number, base_salary, shift_start, shift_end, employment_type
        FROM users 
        WHERE role = 'agent'
        ORDER BY full_name`
@@ -280,7 +281,7 @@ export async function GET(request: NextRequest) {
           leads_count: stats?.leads || 0,
         };
         
-        const performanceScore = calculatePerformanceScore(dayStats);
+        const performanceScore = calculatePerformanceScore(dayStats, agent.employment_type || 'full_time');
         const dayEarnings = calculateDailyEarnings(dailyPotential, performanceScore, attendanceStatus, hrApproved);
         
         // Track totals

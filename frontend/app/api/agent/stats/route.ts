@@ -33,6 +33,7 @@ interface User {
   shift_end: string;
   sales_target: number;
   created_at: string;
+  employment_type?: 'full_time' | 'part_time';
 }
 
 interface DbDailyStats {
@@ -336,7 +337,8 @@ export async function GET(request: NextRequest) {
       dailyStats.filter(s => s.date !== shiftTiming.shiftDatePKT && s.date !== today), // Previous days
       attendanceRecords.filter(a => a.date !== shiftTiming.shiftDatePKT && a.date !== today), // Previous attendance
       shiftBasedTodayStats,
-      todayAttendance
+      todayAttendance,
+      user.employment_type || 'full_time'
     );
 
     // Additional context for the frontend
