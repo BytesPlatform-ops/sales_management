@@ -122,17 +122,36 @@ export interface SalaryBreakdown {
 /**
  * Calculate performance score (0-1.0) based on daily stats
  * Step 5 Formula:
+ * NEW RULE: "2 out of 3" - If agent completes ANY 2 of 3 targets, they get FULL salary (100%)
+ * 
+ * Targets:
+ * - Calls: 150 (full_time) / 75 (part_time)
+ * - Talk Time: 3600s = 60m (full_time) / 1800s = 30m (part_time)
+ * - Leads: 3 (full_time) / 2 (part_time)
+ * 
+ * If 2+ targets are met → Performance Score = 1.0 (100%)
+ * Otherwise, calculate weighted score:
  * - CallScore = (calls / target) * 0.40 (Cap at 0.4)
  * - TalkScore = (seconds / target) * 0.30 (Cap at 0.3)
  * - LeadScore = (leads / target) * 0.30 (Cap at 0.3)
- * - TotalMultiplier = CallScore + TalkScore + LeadScore (Max 1.0)
- * 
- * For full_time: targets are 150 calls, 3600s talk time, 3 leads
- * For part_time: targets are 75 calls, 1800s talk time, 2 leads
  */
 export function calculatePerformanceScore(stats: DailyStats, employmentType: 'full_time' | 'part_time' = 'full_time'): number {
   const targets = getDailyTargets(employmentType);
   
+  // Check which targets are completed
+  const callsCompleted = stats.calls_count >= targets.calls;
+  const talkTimeCompleted = stats.talk_time_seconds >= targets.talk_time_seconds;
+  const leadsCompleted = stats.leads_count >= targets.leads;
+  
+  // Count how many targets are completed
+  const targetsCompleted = [callsCompleted, talkTimeCompleted, leadsCompleted].filter(Boolean).length;
+  
+  // "2 out of 3" rule: If 2+ targets are met, agent gets full salary (100%)
+  if (targetsCompleted >= 2) {
+    return 1.0; // 100% performance score
+  }
+  
+  // Otherwise, calculate weighted score (original logic)
   // CallScore: (calls / target) * 0.40, capped at 0.40
   const callsScore = Math.min((stats.calls_count / targets.calls) * PERFORMANCE_WEIGHTS.calls, PERFORMANCE_WEIGHTS.calls);
   

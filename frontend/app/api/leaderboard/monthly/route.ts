@@ -25,25 +25,26 @@ export async function GET(request: NextRequest) {
     // This ensures consistent timezone handling with the database server
 
     // Get monthly leaderboard - includes ALL active agents
-    // Uses call_logs for calls/talk_time (matching dashboard.py), daily_stats for leads
+    // Uses call_logs for calls/talk_time (matching dashboard.py), daily_stats for leads AND meeting_seconds
     const result = await query(
       `SELECT 
         u.id as user_id,
         u.full_name,
         u.extension_number,
         COALESCE(cl.call_log_calls, 0) as total_calls,
-        COALESCE(cl.call_log_seconds, 0) as total_talk_time,
+        COALESCE(cl.call_log_seconds, 0) + COALESCE(ds.total_meeting_seconds, 0) as total_talk_time,
         COALESCE(ds.total_leads, 0) as total_leads,
         ROW_NUMBER() OVER (
           ORDER BY 
             COALESCE(cl.call_log_calls, 0) DESC, 
-            COALESCE(cl.call_log_seconds, 0) DESC
+            COALESCE(cl.call_log_seconds, 0) + COALESCE(ds.total_meeting_seconds, 0) DESC
         ) as rank
        FROM users u
        LEFT JOIN (
          SELECT 
            user_id,
-           SUM(leads_count) as total_leads
+           SUM(leads_count) as total_leads,
+           SUM(COALESCE(meeting_seconds, 0)) as total_meeting_seconds
          FROM daily_stats 
          WHERE date >= DATE_TRUNC('month', CURRENT_DATE)::date 
            AND date <= CURRENT_DATE

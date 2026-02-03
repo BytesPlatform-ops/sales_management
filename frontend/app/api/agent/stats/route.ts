@@ -237,6 +237,17 @@ export async function GET(request: NextRequest) {
       [user.extension_number, shiftTiming.shiftStartUTC.toISOString(), shiftTiming.shiftEndUTC.toISOString()]
     );
 
+    // Get meeting_seconds from daily_stats for the current shift date
+    // This is manually added by HR for Zoom/Google Meet demos that aren't in call_logs
+    interface MeetingTimeResult { meeting_seconds: string | number | null }
+    const meetingTimeResult = await queryOne<MeetingTimeResult>(
+      `SELECT COALESCE(meeting_seconds, 0) as meeting_seconds
+       FROM daily_stats 
+       WHERE user_id = $1 AND date = $2`,
+      [userId, shiftTiming.shiftDatePKT]
+    );
+    const meetingSeconds = Number(meetingTimeResult?.meeting_seconds || 0);
+
     // Get leads and sales_amount from daily_stats for the shift date (converted/qualified leads, NOT imported CSV leads)
     // Calculate leads_count for current shift: count of approved leads reviewed in shift window
     const leadsCountResult = await queryOne<{ count: string }>(
@@ -319,10 +330,11 @@ export async function GET(request: NextRequest) {
 
     // Build TODAY's stats from SHIFT data (calls from shift window + leads from shift date)
     // This ensures proper calculation for overnight shifts
+    // IMPORTANT: Add meetingSeconds to talk_time_seconds (HR-added Zoom/Google Meet time)
     const shiftBasedTodayStats: DailyStats = {
       date: shiftTiming.shiftDatePKT,
       calls_count: Number(shiftStats?.calls_count || 0),
-      talk_time_seconds: Number(shiftStats?.talk_time_seconds || 0),
+      talk_time_seconds: Number(shiftStats?.talk_time_seconds || 0) + meetingSeconds,
       leads_count: Number(shiftDailyStatsResult?.leads_count || 0),
     };
 
@@ -418,8 +430,8 @@ export async function GET(request: NextRequest) {
           shiftEnd: user.shift_end,
           shiftStartFormatted: shiftTiming.shiftStartFormatted, // "Jan 29, 2026 9:00 PM"
           calls: Number(shiftStats?.calls_count || 0),
-          talkTime: Number(shiftStats?.talk_time_seconds || 0),
-          talkTimeFormatted: formatDurationHuman(Number(shiftStats?.talk_time_seconds || 0)),
+          talkTime: shiftBasedTodayStats.talk_time_seconds, // Includes call_logs + meeting time
+          talkTimeFormatted: formatDurationHuman(shiftBasedTodayStats.talk_time_seconds),
           leads: Number(shiftDailyStatsResult?.leads_count || 0),
           salesAmount: Number(shiftDailyStatsResult?.sales_amount || 0),
           salesTarget: Number(user.sales_target || 0),
@@ -433,8 +445,8 @@ export async function GET(request: NextRequest) {
         earned_today: `Rs ${salaryBreakdown.todayEarnings.toLocaleString('en-PK', { minimumFractionDigits: 2 })}`,
         metrics: {
           calls: Number(shiftStats?.calls_count || 0),
-          talk_time: formatDurationHuman(Number(shiftStats?.talk_time_seconds || 0)),
-          talk_time_seconds: Number(shiftStats?.talk_time_seconds || 0),
+          talk_time: formatDurationHuman(shiftBasedTodayStats.talk_time_seconds),
+          talk_time_seconds: shiftBasedTodayStats.talk_time_seconds, // Includes call_logs + meeting time
           leads: Number(shiftDailyStatsResult?.leads_count || 0),
           sales_amount: Number(shiftDailyStatsResult?.sales_amount || 0),
           sales_target: Number(user.sales_target || 0),

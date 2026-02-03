@@ -211,6 +211,19 @@ class ApiClient {
     return this.request<any[]>(`/hr/agent-leads/${agentId}?date=${date}`);
   }
 
+  // Add meeting time to agent's daily stats
+  async addMeetingTime(agentId: number, date: string, durationMinutes: number, reason?: string) {
+    return this.request<any>('/hr/stats/add-meeting', {
+      method: 'POST',
+      body: JSON.stringify({
+        agentId,
+        date,
+        durationMinutes,
+        reason: reason || null,
+      }),
+    });
+  }
+
   // Power Dialer
   async getNextLead() {
     return this.request<any>('/dialer/next');

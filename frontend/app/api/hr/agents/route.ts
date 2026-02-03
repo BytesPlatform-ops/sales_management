@@ -21,6 +21,37 @@ interface Agent {
   created_at: string;
 }
 
+/**
+ * Get the current working date considering shift time (9 PM start)
+ */
+function getDefaultWorkingDate(): string {
+  const now = new Date();
+
+  const dateFormatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Karachi',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+
+  const hourFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Karachi',
+    hour: 'numeric',
+    hour12: false,
+  });
+
+  const dateStr = dateFormatter.format(now);
+  const hour = parseInt(hourFormatter.format(now), 10);
+
+  if (hour < 6) {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const tempDate = new Date(year, month - 1, day - 1);
+    return `${tempDate.getFullYear()}-${String(tempDate.getMonth() + 1).padStart(2, '0')}-${String(tempDate.getDate()).padStart(2, '0')}`;
+  }
+
+  return dateStr;
+}
+
 export async function GET(request: NextRequest) {
   try {
     // Verify JWT token
@@ -53,27 +84,49 @@ export async function GET(request: NextRequest) {
        ORDER BY full_name ASC`
     );
 
+    // Get current shift date
+    const shiftDate = getDefaultWorkingDate();
+    
     // Get today's attendance for each agent
-    const today = new Date().toISOString().split('T')[0];
     const attendanceRows = await query<{ user_id: number; status: string; check_in_time: string }>(
       `SELECT user_id, status, check_in_time 
        FROM attendance 
        WHERE date = $1`,
-      [today]
+      [shiftDate]
+    );
+
+    // Get today's talk time for each agent from daily_stats
+    const talkTimeRows = await query<{ user_id: number; talk_time_seconds: number; meeting_seconds: number }>(
+      `SELECT user_id, talk_time_seconds, COALESCE(meeting_seconds, 0) as meeting_seconds
+       FROM daily_stats 
+       WHERE date = $1`,
+      [shiftDate]
     );
 
     const attendanceMap = new Map(
       attendanceRows.map(a => [Number(a.user_id), { status: a.status, checkInTime: a.check_in_time }])
     );
 
-    // Combine agents with their attendance
-    const agentsWithAttendance = agents.map(agent => ({
-      ...agent,
-      id: Number(agent.id),
-      base_salary: Number(agent.base_salary),
-      sales_target: Number(agent.sales_target || 0),
-      todayAttendance: attendanceMap.get(Number(agent.id)) || null,
-    }));
+    const talkTimeMap = new Map(
+      talkTimeRows.map(t => [Number(t.user_id), { 
+        talkTimeSeconds: Number(t.talk_time_seconds) || 0,
+        meetingSeconds: Number(t.meeting_seconds) || 0
+      }])
+    );
+
+    // Combine agents with their attendance and talk time
+    const agentsWithAttendance = agents.map(agent => {
+      const talkTime = talkTimeMap.get(Number(agent.id));
+      return {
+        ...agent,
+        id: Number(agent.id),
+        base_salary: Number(agent.base_salary),
+        sales_target: Number(agent.sales_target || 0),
+        todayAttendance: attendanceMap.get(Number(agent.id)) || null,
+        talk_time_today: talkTime?.talkTimeSeconds || 0,
+        meeting_time_today: talkTime?.meetingSeconds || 0,
+      };
+    });
 
     return NextResponse.json({
       status: 'success',

@@ -26,19 +26,19 @@ export async function GET(request: NextRequest) {
 
     // Get today's leaderboard - includes ALL active agents, even with 0 stats
     // Uses call_logs for real-time call tracking (matching dashboard.py)
-    // Uses daily_stats only for leads_count
+    // Uses daily_stats for leads_count AND meeting_seconds (HR-added Zoom/Meet time)
     const result = await query(
       `SELECT 
         u.id as user_id,
         u.full_name,
         u.extension_number,
         COALESCE(cl.call_log_calls, 0) as calls_count,
-        COALESCE(cl.call_log_seconds, 0) as talk_time_seconds,
+        COALESCE(cl.call_log_seconds, 0) + COALESCE(ds.meeting_seconds, 0) as talk_time_seconds,
         COALESCE(ds.leads_count, 0) as leads_count,
         ROW_NUMBER() OVER (
           ORDER BY 
             COALESCE(cl.call_log_calls, 0) DESC, 
-            COALESCE(cl.call_log_seconds, 0) DESC
+            COALESCE(cl.call_log_seconds, 0) + COALESCE(ds.meeting_seconds, 0) DESC
         ) as rank
        FROM users u
        LEFT JOIN daily_stats ds ON ds.user_id = u.id AND ds.date = CURRENT_DATE

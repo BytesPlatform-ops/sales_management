@@ -44,9 +44,9 @@ function getWorkingDate(dateStr?: string): string {
   // If it's before 6 AM, we're still in yesterday's shift
   if (hour < 6) {
     const [year, month, day] = currentDate.split('-').map(Number);
-    const date = new Date(year, month - 1, day);
-    date.setDate(date.getDate() - 1);
-    return date.toISOString().split('T')[0];
+    // Create date and subtract one day, then format WITHOUT using toISOString (which converts to UTC)
+    const tempDate = new Date(year, month - 1, day - 1);
+    return `${tempDate.getFullYear()}-${String(tempDate.getMonth() + 1).padStart(2, '0')}-${String(tempDate.getDate()).padStart(2, '0')}`;
   }
 
   return currentDate;
@@ -54,6 +54,8 @@ function getWorkingDate(dateStr?: string): string {
 
 /**
  * Calculate estimated daily earnings based on performance
+ * 
+ * NEW RULE: "2 out of 3" - If agent completes ANY 2 of 3 targets, they get FULL salary (100%)
  */
 function calculateEstimatedEarnings(
   baseSalary: number,
@@ -72,11 +74,25 @@ function calculateEstimatedEarnings(
     ? { calls: 75, talkTime: 1800, leads: 2 }
     : { calls: 150, talkTime: 3600, leads: 3 };
   
-  // Calculate performance score (0-1.0)
-  const callsScore = Math.min((callsCount / targets.calls) * 0.40, 0.40);
-  const talkTimeScore = Math.min((talkTimeSeconds / targets.talkTime) * 0.30, 0.30);
-  const leadsScore = Math.min((leadsCount / targets.leads) * 0.30, 0.30);
-  const performanceScore = callsScore + talkTimeScore + leadsScore;
+  // Check which targets are completed
+  const callsCompleted = callsCount >= targets.calls;
+  const talkTimeCompleted = talkTimeSeconds >= targets.talkTime;
+  const leadsCompleted = leadsCount >= targets.leads;
+  
+  // Count how many targets are completed
+  const targetsCompleted = [callsCompleted, talkTimeCompleted, leadsCompleted].filter(Boolean).length;
+  
+  // "2 out of 3" rule: If 2+ targets are met, agent gets full salary (100%)
+  let performanceScore: number;
+  if (targetsCompleted >= 2) {
+    performanceScore = 1.0; // 100% performance score
+  } else {
+    // Otherwise, calculate weighted score (original logic)
+    const callsScore = Math.min((callsCount / targets.calls) * 0.40, 0.40);
+    const talkTimeScore = Math.min((talkTimeSeconds / targets.talkTime) * 0.30, 0.30);
+    const leadsScore = Math.min((leadsCount / targets.leads) * 0.30, 0.30);
+    performanceScore = callsScore + talkTimeScore + leadsScore;
+  }
   
   // Attendance multiplier
   let attendanceMultiplier = 1.0;
@@ -163,10 +179,14 @@ export async function GET(request: NextRequest) {
         -- Daily stats (leads_count from daily_stats)
         COALESCE(ds.leads_count, 0) as leads_count,
         COALESCE(ds.sales_amount, 0) as sales_amount,
+        COALESCE(ds.meeting_seconds, 0) as meeting_seconds,
         
-        -- Calls and talk time from call_logs
+        -- Calls from call_logs
         COALESCE(call_stats.call_count, 0) as calls_count,
-        COALESCE(call_stats.talk_time_seconds, 0) as talk_time_seconds,
+        -- Talk time from call_logs only (for breakdown display)
+        COALESCE(call_stats.talk_time_seconds, 0) as call_talk_time_seconds,
+        -- Total talk time = call_logs + meeting_seconds (for calculations)
+        COALESCE(call_stats.talk_time_seconds, 0) + COALESCE(ds.meeting_seconds, 0) as talk_time_seconds,
         
         -- Leads breakdown (approved and pending for the date)
         COALESCE(leads_approved.count, 0) as leads_approved,
@@ -225,7 +245,9 @@ export async function GET(request: NextRequest) {
       const baseSalary = Number(agent.base_salary) || 0;
       const salesTarget = Number(agent.sales_target) || 0;
       const callsCount = Number(agent.calls_count) || 0;
-      const talkTimeSeconds = Number(agent.talk_time_seconds) || 0;
+      const callTalkTimeSeconds = Number(agent.call_talk_time_seconds) || 0;
+      const meetingSeconds = Number(agent.meeting_seconds) || 0;
+      const talkTimeSeconds = Number(agent.talk_time_seconds) || 0; // Total: call_logs + meeting
       const leadsApproved = Number(agent.leads_approved) || 0;
       const leadsCount = Number(agent.leads_count) || 0;
       const salesAmount = Number(agent.total_sales_value) || Number(agent.sales_amount) || 0;
@@ -267,7 +289,9 @@ export async function GET(request: NextRequest) {
         
         // Performance metrics
         callsCount,
-        talkTimeSeconds,
+        callTalkTimeSeconds,   // From call_logs only (phone calls)
+        meetingSeconds,        // HR-added meeting time (Zoom/Google Meet)
+        talkTimeSeconds,       // Total = callTalkTimeSeconds + meetingSeconds
         leadsApproved: Number(agent.leads_approved) || 0,
         leadsPending: Number(agent.leads_pending) || 0,
         salesAmount,

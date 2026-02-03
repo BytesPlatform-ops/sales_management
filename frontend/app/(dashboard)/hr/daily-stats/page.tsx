@@ -24,6 +24,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Zap,
+  Plus,
 } from 'lucide-react';
 
 interface AgentDailyStats {
@@ -41,7 +42,9 @@ interface AgentDailyStats {
   attendanceStatus: 'on_time' | 'late' | 'half_day' | 'absent' | null;
   hrApproved: boolean;
   callsCount: number;
-  talkTimeSeconds: number;
+  callTalkTimeSeconds: number;  // From call_logs only (phone calls)
+  meetingSeconds: number;        // HR-added meeting time (Zoom/Google Meet)
+  talkTimeSeconds: number;       // Total = callTalkTimeSeconds + meetingSeconds
   leadsApproved: number;
   leadsPending: number;
   salesAmount: number;
@@ -81,9 +84,9 @@ function getDefaultWorkingDate(): string {
   // If it's before 6 AM, we're still in yesterday's shift
   if (hour < 6) {
     const [year, month, day] = dateStr.split('-').map(Number);
-    const date = new Date(year, month - 1, day);
-    date.setDate(date.getDate() - 1);
-    return date.toISOString().split('T')[0];
+    // Create date and subtract one day, then format WITHOUT using toISOString (which converts to UTC)
+    const tempDate = new Date(year, month - 1, day - 1);
+    return `${tempDate.getFullYear()}-${String(tempDate.getMonth() + 1).padStart(2, '0')}-${String(tempDate.getDate()).padStart(2, '0')}`;
   }
 
   return dateStr;
@@ -407,7 +410,9 @@ export default function HRDailyStatsPage() {
               <TableHead>Agent</TableHead>
               <TableHead>Attendance</TableHead>
               <TableHead>Calls</TableHead>
-              <TableHead>Talk Time</TableHead>
+              <TableHead>Call Time</TableHead>
+              <TableHead>Meeting</TableHead>
+              <TableHead>Total Talk</TableHead>
               <TableHead>Leads</TableHead>
               <TableHead>Sales</TableHead>
               <TableHead className="text-right">Est. Earnings</TableHead>
@@ -416,14 +421,14 @@ export default function HRDailyStatsPage() {
           <TableBody>
             {loading && data.length === 0 ? (
               <TableRow>
-                <td colSpan={7} className="px-4 py-12 text-center">
+                <td colSpan={9} className="px-4 py-12 text-center">
                   <RefreshCw className="h-6 w-6 animate-spin mx-auto text-gray-400" />
                   <p className="text-gray-500 mt-2">Loading...</p>
                 </td>
               </TableRow>
             ) : data.length === 0 ? (
               <TableRow>
-                <td colSpan={7} className="px-4 py-12 text-center">
+                <td colSpan={9} className="px-4 py-12 text-center">
                   <Users className="h-12 w-12 mx-auto text-gray-300" />
                   <p className="text-gray-500 mt-2">No agents found</p>
                 </td>
@@ -502,12 +507,32 @@ export default function HRDailyStatsPage() {
                       </div>
                     </TableCell>
 
-                    {/* Talk Time */}
+                    {/* Call Time (from call_logs / 3CX phone calls only) */}
                     <TableCell>
                       <div>
-                        <div className="font-medium text-gray-900">
-                          {formatDurationHuman(agent.talkTimeSeconds)}
-                          <span className="text-gray-400 font-normal"> / {talkTimeTargetMinutes}m</span>
+                        <div className="font-medium text-gray-900 text-sm">
+                          {formatDurationHuman(agent.callTalkTimeSeconds || 0)}
+                        </div>
+                      </div>
+                    </TableCell>
+
+                    {/* Meeting Time (HR-added Zoom/Google Meet) */}
+                    <TableCell>
+                      <div>
+                        <div className={`font-medium text-sm ${(agent.meetingSeconds || 0) > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                          {formatDurationHuman(agent.meetingSeconds || 0)}
+                        </div>
+                      </div>
+                    </TableCell>
+
+                    {/* Total Talk Time (calls + meeting) - used for calculations */}
+                    <TableCell>
+                      <div>
+                        <div className="font-medium text-gray-900 text-sm">
+                          <span>
+                            {formatDurationHuman(agent.talkTimeSeconds)}
+                            <span className="text-gray-400 font-normal"> / {talkTimeTargetMinutes}m</span>
+                          </span>
                         </div>
                         <ProgressBar
                           value={agent.talkTimeSeconds}
@@ -596,6 +621,19 @@ export default function HRDailyStatsPage() {
                     {data.reduce((sum, a) => sum + a.callsCount, 0).toLocaleString()}
                   </div>
                 </TableCell>
+                {/* Call Time (from call_logs) */}
+                <TableCell>
+                  <div className="text-gray-900">
+                    {formatDurationHuman(data.reduce((sum, a) => sum + (a.callTalkTimeSeconds || 0), 0))}
+                  </div>
+                </TableCell>
+                {/* Meeting Time */}
+                <TableCell>
+                  <div className="text-blue-600">
+                    🎥 {formatDurationHuman(data.reduce((sum, a) => sum + (a.meetingSeconds || 0), 0))}
+                  </div>
+                </TableCell>
+                {/* Total Talk Time */}
                 <TableCell>
                   <div className="text-gray-900">
                     {formatDurationHuman(data.reduce((sum, a) => sum + a.talkTimeSeconds, 0))}
@@ -604,10 +642,10 @@ export default function HRDailyStatsPage() {
                 <TableCell>
                   <div className="flex items-center gap-2">
                     <span className="text-green-700">
-                      ✓ {data.reduce((sum, a) => sum + a.leadsApproved, 0)}
+                      ✓{data.reduce((sum, a) => sum + a.leadsApproved, 0)}
                     </span>
                     <span className="text-yellow-700">
-                      ⏳ {data.reduce((sum, a) => sum + a.leadsPending, 0)}
+                      ⏳{data.reduce((sum, a) => sum + a.leadsPending, 0)}
                     </span>
                   </div>
                 </TableCell>
