@@ -664,6 +664,9 @@ export default function HRDailyStatsPage() {
               ) : leadsModal.leads.length === 0 ? (
                 <div className="text-center py-8">
                   <p className="text-gray-500">No approved leads found for this date</p>
+                  <p className="text-xs text-gray-400 mt-2">
+                    Agent: {leadsModal.agentId} | Date: {selectedDate}
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-2">

@@ -1,20 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-);
+import { query } from '@/lib/db';
 
 interface AgentLead {
   id: string;
-  agentId: number;
-  customerName: string;
-  customerEmail: string;
+  agent_id: number;
+  customer_name: string;
+  customer_email: string;
   status: 'pending' | 'approved' | 'rejected';
-  reviewedBy: number | null;
-  reviewedAt: string | null;
-  createdAt: string;
+  reviewed_by: number | null;
+  reviewed_at: string | null;
+  created_at: string;
 }
 
 // GET - Get all approved leads for an agent on a specific date
@@ -23,7 +18,7 @@ export async function GET(
   { params }: { params: { agentId: string } }
 ) {
   try {
-    const agentId = params.agentId;
+    const agentId = parseInt(params.agentId, 10);
     const searchParams = request.nextUrl.searchParams;
     const date = searchParams.get('date'); // Format: YYYY-MM-DD
 
@@ -34,26 +29,45 @@ export async function GET(
       );
     }
 
-    // Fetch approved leads for the agent on the specific date
-    const { data: leads, error } = await supabase
-      .from('agent_leads')
-      .select('*')
-      .eq('agent_id', parseInt(agentId, 10))
-      .eq('status', 'approved')
-      .gte('created_at', `${date}T00:00:00Z`)
-      .lt('created_at', `${date}T23:59:59Z`)
-      .order('created_at', { ascending: false });
+    // Fetch all approved leads for the agent
+    const leads = await query<AgentLead>(
+      `SELECT id, agent_id, customer_name, customer_email, status, reviewed_by, reviewed_at, created_at
+       FROM agent_leads
+       WHERE agent_id = $1 AND status = $2
+       ORDER BY created_at DESC`,
+      [agentId, 'approved']
+    );
 
-    if (error) {
-      console.error('Supabase error:', error);
-      return NextResponse.json(
-        { status: 'error', message: error.message },
-        { status: 500 }
-      );
-    }
+    // Filter by date in application (UTC date - same as daily stats)
+    // The date parameter represents: startOfDay UTC to endOfDay UTC
+    const filteredLeads = leads.filter((lead) => {
+      const leadDate = new Date(lead.created_at);
+      const utcDateStr = leadDate.toISOString().split('T')[0];
+      return utcDateStr === date;
+    });
 
-    // Transform snake_case to camelCase
-    const transformedLeads = (leads || []).map((lead: any) => ({
+    console.log('Debug agent leads:', {
+      agentId,
+      date,
+      totalLeads: leads.length,
+      filteredLeads: filteredLeads.length,
+      sampleLeads: leads.slice(0, 2).map((l) => ({
+        id: l.id,
+        agent_id: l.agent_id,
+        status: l.status,
+        created_at: l.created_at,
+        utcDate: new Date(l.created_at).toISOString().split('T')[0],
+        karachiDate: new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Karachi',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }).format(new Date(l.created_at)),
+      })),
+    });
+
+    // Transform to camelCase for response
+    const transformedLeads = filteredLeads.map((lead) => ({
       id: lead.id,
       agentId: lead.agent_id,
       customerName: lead.customer_name,
@@ -68,7 +82,7 @@ export async function GET(
       status: 'success',
       data: transformedLeads,
       date,
-      agentId: parseInt(agentId, 10),
+      agentId,
     });
   } catch (error) {
     console.error('Error fetching agent leads:', error);
