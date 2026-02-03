@@ -206,6 +206,11 @@ class ApiClient {
     return this.request<any>(`/hr/daily-stats${query}`);
   }
 
+  // Agent Leads - HR (fetch approved leads for an agent on a specific date)
+  async getAgentLeads(agentId: number, date: string) {
+    return this.request<any[]>(`/hr/agent-leads/${agentId}?date=${date}`);
+  }
+
   // Power Dialer
   async getNextLead() {
     return this.request<any>('/dialer/next');

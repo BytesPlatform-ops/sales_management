@@ -169,6 +169,21 @@ export default function HRDailyStatsPage() {
   const [loading, setLoading] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  
+  // Modal state for leads
+  const [leadsModal, setLeadsModal] = useState<{
+    isOpen: boolean;
+    agentId: number | null;
+    agentName: string;
+    leads: any[];
+    loading: boolean;
+  }>({
+    isOpen: false,
+    agentId: null,
+    agentName: '',
+    leads: [],
+    loading: false,
+  });
 
   const fetchData = useCallback(async () => {
     try {
@@ -231,6 +246,45 @@ export default function HRDailyStatsPage() {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(amount);
+  };
+
+  // Open leads modal and fetch approved leads for the agent
+  const openLeadsModal = async (agentId: number, agentName: string) => {
+    setLeadsModal({
+      isOpen: true,
+      agentId,
+      agentName,
+      leads: [],
+      loading: true,
+    });
+
+    try {
+      const response = await api.getAgentLeads(agentId, selectedDate);
+      const leadsArray = Array.isArray(response) ? response : (response as any).data || [];
+      setLeadsModal((prev) => ({
+        ...prev,
+        leads: leadsArray,
+        loading: false,
+      }));
+    } catch (error) {
+      console.error('Failed to fetch agent leads:', error);
+      setLeadsModal((prev) => ({
+        ...prev,
+        leads: [],
+        loading: false,
+      }));
+    }
+  };
+
+  // Close leads modal
+  const closeLeadsModal = () => {
+    setLeadsModal({
+      isOpen: false,
+      agentId: null,
+      agentName: '',
+      leads: [],
+      loading: false,
+    });
   };
 
   // Format sales amount in USD
@@ -469,7 +523,11 @@ export default function HRDailyStatsPage() {
 
                     {/* Leads */}
                     <TableCell>
-                      <div>
+                      <button
+                        onClick={() => openLeadsModal(agent.id, agent.fullName)}
+                        className="cursor-pointer hover:bg-blue-50 p-2 rounded-lg transition-colors text-left w-full"
+                        title="Click to view approved leads"
+                      >
                         <div className="flex items-center gap-2">
                           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
                             ✓ {agent.leadsApproved}
@@ -481,7 +539,7 @@ export default function HRDailyStatsPage() {
                           )}
                           <span className="text-gray-400 text-xs">/ {targets.leads}</span>
                         </div>
-                      </div>
+                      </button>
                     </TableCell>
 
                     {/* Sales */}
@@ -568,6 +626,85 @@ export default function HRDailyStatsPage() {
           </TableBody>
         </Table>
       </div>
+
+      {/* Leads Modal */}
+      {leadsModal.isOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-lg max-w-2xl w-full max-h-[90vh] overflow-auto">
+            {/* Modal Header */}
+            <div className="sticky top-0 bg-white border-b p-6 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">
+                  Approved Leads - {leadsModal.agentName}
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Date: {new Date(selectedDate).toLocaleDateString('en-PK', {
+                    weekday: 'short',
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                  })}
+                </p>
+              </div>
+              <button
+                onClick={closeLeadsModal}
+                className="text-gray-400 hover:text-gray-600 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6">
+              {leadsModal.loading ? (
+                <div className="text-center py-8">
+                  <RefreshCw className="h-6 w-6 animate-spin mx-auto text-gray-400" />
+                  <p className="text-gray-500 mt-2">Loading leads...</p>
+                </div>
+              ) : leadsModal.leads.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-gray-500">No approved leads found for this date</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {leadsModal.leads.map((lead, index) => (
+                    <div
+                      key={lead.id}
+                      className="flex items-start gap-4 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                    >
+                      <div className="flex-shrink-0 w-6 h-6 rounded-full bg-green-500 text-white flex items-center justify-center text-xs font-semibold">
+                        {index + 1}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-900">{lead.customerName}</p>
+                        <p className="text-sm text-gray-600">{lead.customerEmail}</p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          Created: {new Date(lead.createdAt).toLocaleTimeString('en-PK', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </p>
+                      </div>
+                      <div className="flex-shrink-0">
+                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                          ✓ Approved
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="border-t p-4 bg-gray-50 flex justify-end">
+              <Button variant="outline" onClick={closeLeadsModal}>
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Legend */}
       <div className="bg-gray-50 rounded-xl border p-4">
