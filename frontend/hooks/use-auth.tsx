@@ -11,7 +11,6 @@ interface User {
   role: 'hr' | 'agent';
   extension_number: string;
   base_salary: number;
-  employment_type?: 'full_time' | 'part_time';
 }
 
 interface AttendanceInfo {

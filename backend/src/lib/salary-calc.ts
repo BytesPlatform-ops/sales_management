@@ -43,6 +43,34 @@ const ATTENDANCE_MULTIPLIERS = {
   absent: 0, // 0%
 };
 
+// Daily Performance Targets by Employment Type
+export const DAILY_TARGETS = {
+  full_time: {
+    calls: 150,               // 150 calls for max call score
+    talk_time_seconds: 3600,  // 1 hour (3600 seconds) for max talk score
+    leads: 3,                 // 3 leads for max lead score
+  },
+  part_time: {
+    calls: 75,                // 75 calls for max call score
+    talk_time_seconds: 1800,  // 30 minutes (1800 seconds) for max talk score
+    leads: 2,                 // 2 leads for max lead score
+  },
+};
+
+// Performance scoring weights
+export const PERFORMANCE_WEIGHTS = {
+  calls: 0.40,     // 40% weight for calls (max 0.40)
+  talk_time: 0.30, // 30% weight for talk time (max 0.30)
+  leads: 0.30,     // 30% weight for leads (max 0.30)
+};
+
+/**
+ * Get daily targets based on employment type
+ */
+export function getDailyTargets(employmentType: 'full_time' | 'part_time' = 'full_time') {
+  return DAILY_TARGETS[employmentType];
+}
+
 /**
  * Calculate salary based on attendance and performance
  */

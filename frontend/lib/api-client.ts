@@ -200,6 +200,12 @@ class ApiClient {
     });
   }
 
+  // Daily Stats - HR
+  async getDailyStats(date?: string) {
+    const query = date ? `?date=${date}` : '';
+    return this.request<any>(`/hr/daily-stats${query}`);
+  }
+
   // Power Dialer
   async getNextLead() {
     return this.request<any>('/dialer/next');

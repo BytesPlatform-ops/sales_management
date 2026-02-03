@@ -16,6 +16,7 @@ import {
   Phone,
   DollarSign,
   Receipt,
+  TrendingUp,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -55,6 +56,12 @@ const navItems: NavItem[] = [
     label: 'Dashboard',
     href: '/hr',
     icon: LayoutDashboard,
+    roles: ['hr'],
+  },
+  {
+    label: 'Daily Stats',
+    href: '/hr/daily-stats',
+    icon: TrendingUp,
     roles: ['hr'],
   },
   {
