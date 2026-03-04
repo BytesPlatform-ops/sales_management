@@ -129,7 +129,7 @@ function matchRecordingToCall(
   callTime: Date
 ): ThreeCXRecording | null {
   for (const rec of recordings) {
-    if (rec.Dn !== callExtension) continue;
+    if (rec.FromDn !== callExtension) continue;
     const recTime = new Date(rec.StartTime);
     const timeDiff = Math.abs(callTime.getTime() - recTime.getTime());
     if (timeDiff < 2 * 60 * 1000) return rec; // Within 2 minutes
