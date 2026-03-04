@@ -260,6 +260,39 @@ class ApiClient {
     const query = agentId ? `?agent_id=${agentId}` : '';
     return this.request<any[]>(`/hr/leads${query}`);
   }
+
+  // Audit Sample - HR (QA Module)
+  async getAuditSample(date: string) {
+    return this.request<any>(`/hr/audit/sample?date=${date}`);
+  }
+
+  // Fetch existing audit for a date (does NOT generate)
+  async fetchAudit(date: string) {
+    return this.request<any>(`/hr/audit?date=${date}`);
+  }
+
+  // Generate new audit for a date (POST - creates new sample)
+  async generateAudit(date: string) {
+    return this.request<any>('/hr/audit/generate', {
+      method: 'POST',
+      body: JSON.stringify({ date }),
+    });
+  }
+
+  // HR Settings
+  async getSettings() {
+    return this.request<{
+      success: boolean;
+      settings: Record<string, { value: string; description: string | null }>;
+    }>('/hr/settings');
+  }
+
+  async updateSetting(key: string, value: string) {
+    return this.request<{ success: boolean; message: string; key: string; value: string }>('/hr/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ key, value }),
+    });
+  }
 }
 
 export const api = new ApiClient();

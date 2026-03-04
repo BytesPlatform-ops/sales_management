@@ -17,6 +17,7 @@ import {
   DollarSign,
   Receipt,
   TrendingUp,
+  Headphones,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -80,6 +81,12 @@ const navItems: NavItem[] = [
     label: 'Payroll',
     href: '/hr/payroll',
     icon: DollarSign,
+    roles: ['hr'],
+  },
+  {
+    label: 'Call Auditing',
+    href: '/hr/auditing',
+    icon: Headphones,
     roles: ['hr'],
   },
   {
