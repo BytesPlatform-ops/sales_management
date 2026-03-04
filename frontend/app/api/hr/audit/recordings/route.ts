@@ -92,12 +92,14 @@ export async function GET(request: NextRequest) {
     const recordingsWithUrls = await Promise.all(
       recordings.map(async (rec) => ({
         recId: rec.Id,
-        callId: rec.CallId,
-        extension: rec.Dn,
-        participants: rec.Participants,
+        extension: rec.FromDn,
+        fromNumber: rec.FromCallerNumber,
+        toNumber: rec.ToCallerNumber,
+        fromName: rec.FromDisplayName,
+        toName: rec.ToDisplayName,
+        callType: rec.CallType,
         startTime: rec.StartTime,
-        duration: rec.Duration,
-        size: rec.Size,
+        endTime: rec.EndTime,
         downloadUrl: await getRecordingDownloadUrl(rec.Id, clientSecret),
       }))
     );
