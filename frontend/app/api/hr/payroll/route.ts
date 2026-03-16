@@ -282,7 +282,7 @@ export async function GET(request: NextRequest) {
         };
         
         const performanceScore = calculatePerformanceScore(dayStats, agent.employment_type || 'full_time');
-        const dayEarnings = calculateDailyEarnings(dailyPotential, performanceScore, attendanceStatus, hrApproved);
+        const dayEarnings = calculateDailyEarnings(dailyPotential, performanceScore, attendanceStatus);
         
         // Track totals
         daysWorked++;

@@ -57,11 +57,11 @@ export const DAILY_TARGETS = {
   },
 };
 
-// Performance scoring weights
+// Performance scoring weights (Calls + Talk Time only, Leads displayed but not scored)
 export const PERFORMANCE_WEIGHTS = {
-  calls: 0.40,     // 40% weight for calls (max 0.40)
-  talk_time: 0.30, // 30% weight for talk time (max 0.30)
-  leads: 0.30,     // 30% weight for leads (max 0.30)
+  calls: 0.60,     // 60% weight for calls (max 0.60)
+  talk_time: 0.40, // 40% weight for talk time (max 0.40)
+  leads: 0,        // 0% - Leads tracked for display only, not scored
 };
 
 /**

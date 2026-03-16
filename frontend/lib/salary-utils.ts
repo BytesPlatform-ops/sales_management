@@ -26,11 +26,11 @@ export const LATE_POLICY = {
   EXCESS_LATE_PENALTY: 0.5, // 4th+ late counts as 0.5 day deduction
 };
 
-// Performance scoring weights (Step 5 Formula)
+// Performance scoring weights (Calls + Talk Time only, Leads displayed but not scored)
 export const PERFORMANCE_WEIGHTS = {
-  calls: 0.40,     // 40% weight for calls (max 0.40)
-  talk_time: 0.30, // 30% weight for talk time (max 0.30)
-  leads: 0.30,     // 30% weight for leads (max 0.30)
+  calls: 0.60,     // 60% weight for calls (max 0.60)
+  talk_time: 0.40, // 40% weight for talk time (max 0.40)
+  leads: 0,        // 0% - Leads tracked for display only, not scored
 };
 
 // Target values for 100% performance (Step 5 Formula)
@@ -121,48 +121,40 @@ export interface SalaryBreakdown {
 
 /**
  * Calculate performance score (0-1.0) based on daily stats
- * Step 5 Formula:
- * NEW RULE: "2 out of 3" - If agent completes ANY 2 of 3 targets, they get FULL salary (100%)
+ * 
+ * "Both Required" Rule: Agent must complete BOTH targets for 100% performance
  * 
  * Targets:
  * - Calls: 150 (full_time) / 75 (part_time)
  * - Talk Time: 3600s = 60m (full_time) / 1800s = 30m (part_time)
- * - Leads: 3 (full_time) / 2 (part_time)
+ * - Leads: Tracked for display only, NOT scored
  * 
- * If 2+ targets are met → Performance Score = 1.0 (100%)
+ * If BOTH targets met → Performance Score = 1.0 (100%)
  * Otherwise, calculate weighted score:
- * - CallScore = (calls / target) * 0.40 (Cap at 0.4)
- * - TalkScore = (seconds / target) * 0.30 (Cap at 0.3)
- * - LeadScore = (leads / target) * 0.30 (Cap at 0.3)
+ * - CallScore = (calls / target) * 0.60 (Cap at 0.60)
+ * - TalkScore = (seconds / target) * 0.40 (Cap at 0.40)
  */
 export function calculatePerformanceScore(stats: DailyStats, employmentType: 'full_time' | 'part_time' = 'full_time'): number {
   const targets = getDailyTargets(employmentType);
   
-  // Check which targets are completed
+  // Check which targets are completed (Leads NOT included in performance)
   const callsCompleted = stats.calls_count >= targets.calls;
   const talkTimeCompleted = stats.talk_time_seconds >= targets.talk_time_seconds;
-  const leadsCompleted = stats.leads_count >= targets.leads;
   
-  // Count how many targets are completed
-  const targetsCompleted = [callsCompleted, talkTimeCompleted, leadsCompleted].filter(Boolean).length;
-  
-  // "2 out of 3" rule: If 2+ targets are met, agent gets full salary (100%)
-  if (targetsCompleted >= 2) {
+  // "Both Required" rule: Agent must complete BOTH targets for 100%
+  if (callsCompleted && talkTimeCompleted) {
     return 1.0; // 100% performance score
   }
   
-  // Otherwise, calculate weighted score (original logic)
-  // CallScore: (calls / target) * 0.40, capped at 0.40
+  // Otherwise, calculate weighted score
+  // CallScore: (calls / target) * 0.60, capped at 0.60
   const callsScore = Math.min((stats.calls_count / targets.calls) * PERFORMANCE_WEIGHTS.calls, PERFORMANCE_WEIGHTS.calls);
   
-  // TalkScore: (seconds / target) * 0.30, capped at 0.30
+  // TalkScore: (seconds / target) * 0.40, capped at 0.40
   const talkTimeScore = Math.min((stats.talk_time_seconds / targets.talk_time_seconds) * PERFORMANCE_WEIGHTS.talk_time, PERFORMANCE_WEIGHTS.talk_time);
   
-  // LeadScore: (leads / target) * 0.30, capped at 0.30
-  const leadsScore = Math.min((stats.leads_count / targets.leads) * PERFORMANCE_WEIGHTS.leads, PERFORMANCE_WEIGHTS.leads);
-  
   // TotalMultiplier = sum of all scores (max 1.0)
-  const totalMultiplier = callsScore + talkTimeScore + leadsScore;
+  const totalMultiplier = callsScore + talkTimeScore;
   
   return Math.round(totalMultiplier * 100) / 100; // 0.00 to 1.00
 }
@@ -216,27 +208,21 @@ export function calculateLatePolicyDeduction(
 /**
  * Calculate daily earnings based on performance and attendance
  * 
- * NEW "3 Lates Free" Policy:
+ * Attendance Rules:
  * - on_time: 100% of daily potential * performance
  * - late: 100% of daily potential * performance (deduction handled at month level)
- * - half_day: 50% of daily potential * performance
+ * - half_day: 50% of daily potential * performance (max 50%, no HR approval needed)
  * - absent: 0% earnings
  * 
- * Note: Late deductions are now calculated at the month level via calculateLatePolicyDeduction()
+ * Note: Late deductions are calculated at month level via calculateLatePolicyDeduction()
  */
 export function calculateDailyEarnings(
   dailyPotential: number,
   performanceScore: number,
-  attendanceStatus: 'on_time' | 'late' | 'half_day' | 'absent',
-  hrApproved: boolean = false
+  attendanceStatus: 'on_time' | 'late' | 'half_day' | 'absent'
 ): number {
   const attendanceMultiplier = ATTENDANCE_MULTIPLIERS[attendanceStatus];
-  let earnings = dailyPotential * performanceScore * attendanceMultiplier;
-  
-  // Step 5 Penalty: If half_day AND NOT hr_approved, apply additional 0.5 penalty
-  if (attendanceStatus === 'half_day' && !hrApproved) {
-    earnings = earnings * 0.5;
-  }
+  const earnings = dailyPotential * performanceScore * attendanceMultiplier;
   
   return Math.round(earnings * 100) / 100;
 }
@@ -289,10 +275,9 @@ export function calculateSalaryBreakdown(
     
     const attendanceRecord = attendanceMap.get(stats.date);
     const attendance = attendanceRecord?.status || 'absent';
-    const hrApproved = attendanceRecord?.hr_approved || false;
     
     const performanceScore = calculatePerformanceScore(stats, employmentType);
-    const dayEarnings = calculateDailyEarnings(dailyPotential, performanceScore, attendance, hrApproved);
+    const dayEarnings = calculateDailyEarnings(dailyPotential, performanceScore, attendance);
     
     activeEarnings += dayEarnings;
     activeDays++;
@@ -330,13 +315,11 @@ export function calculateSalaryBreakdown(
   if (todayStats && todayAttendance) {
     todayPerformanceScore = calculatePerformanceScore(todayStats, employmentType);
     todayAttendanceMultiplier = ATTENDANCE_MULTIPLIERS[todayAttendance.status];
-    const todayHrApproved = todayAttendance.hr_approved || false;
     
     todayEarnings = calculateDailyEarnings(
       dailyPotential,
       todayPerformanceScore,
-      todayAttendance.status,
-      todayHrApproved
+      todayAttendance.status
     );
     
     // Add today's stats to totals
