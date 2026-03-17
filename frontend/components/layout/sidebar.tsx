@@ -12,12 +12,13 @@ import {
   LogOut,
   Menu,
   X,
-  Upload,
-  Phone,
   DollarSign,
   Receipt,
   TrendingUp,
   Headphones,
+  FileUp,
+  PhoneCall,
+  Target,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -36,15 +37,15 @@ const navItems: NavItem[] = [
     roles: ['agent'],
   },
   {
-    label: 'Import Leads',
-    href: '/agent/leads',
-    icon: Upload,
+    label: 'My Leads',
+    href: '/agent/dialer-leads',
+    icon: PhoneCall,
     roles: ['agent'],
   },
   {
-    label: 'Power Dialer',
-    href: '/agent/dialer',
-    icon: Phone,
+    label: 'Pipeline',
+    href: '/agent/pipeline',
+    icon: Target,
     roles: ['agent'],
   },
   {
@@ -87,6 +88,18 @@ const navItems: NavItem[] = [
     label: 'Call Auditing',
     href: '/hr/auditing',
     icon: Headphones,
+    roles: ['hr'],
+  },
+  {
+    label: 'Leads',
+    href: '/hr/dialer-leads',
+    icon: FileUp,
+    roles: ['hr'],
+  },
+  {
+    label: 'Pipeline',
+    href: '/hr/pipeline',
+    icon: Target,
     roles: ['hr'],
   },
   {

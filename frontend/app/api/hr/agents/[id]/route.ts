@@ -243,11 +243,26 @@ export async function PUT(
       values
     );
 
-    console.log(`✅ Agent updated: ${updatedAgent?.full_name} (ID: ${agentId})`);
+    // If agent was deactivated via update, return their pending leads to fresh pool
+    let returnedLeadsCount = 0;
+    if (is_active === false) {
+      const returnedLeads = await query(
+        `UPDATE dialer_leads
+         SET pool = 'fresh', assigned_agent_id = NULL, assigned_date = NULL, updated_at = NOW()
+         WHERE assigned_agent_id = $1 AND call_outcome = 'pending' AND pool = 'active'
+         RETURNING id`,
+        [agentId]
+      );
+      returnedLeadsCount = returnedLeads.length;
+    }
+
+    console.log(`✅ Agent updated: ${updatedAgent?.full_name} (ID: ${agentId})${returnedLeadsCount > 0 ? `, ${returnedLeadsCount} leads returned to fresh pool` : ''}`);
 
     return NextResponse.json({
       status: 'success',
-      message: 'Agent updated successfully',
+      message: returnedLeadsCount > 0
+        ? `Agent updated. ${returnedLeadsCount} pending leads returned to pool.`
+        : 'Agent updated successfully',
       data: {
         ...updatedAgent,
         id: Number(updatedAgent?.id),
@@ -303,13 +318,22 @@ export async function DELETE(
 
     // Soft delete - set is_active = false
     await query(
-      `UPDATE users 
+      `UPDATE users
        SET is_active = false, updated_at = CURRENT_TIMESTAMP
        WHERE id = $1`,
       [agentId]
     );
 
-    console.log(`🗑️ Agent deactivated: ${existingAgent.full_name} (ID: ${agentId})`);
+    // Return agent's pending leads to fresh pool
+    const returnedLeads = await query(
+      `UPDATE dialer_leads
+       SET pool = 'fresh', assigned_agent_id = NULL, assigned_date = NULL, updated_at = NOW()
+       WHERE assigned_agent_id = $1 AND call_outcome = 'pending' AND pool = 'active'
+       RETURNING id`,
+      [agentId]
+    );
+
+    console.log(`🗑️ Agent deactivated: ${existingAgent.full_name} (ID: ${agentId}), ${returnedLeads.length} leads returned to fresh pool`);
 
     return NextResponse.json({
       status: 'success',
