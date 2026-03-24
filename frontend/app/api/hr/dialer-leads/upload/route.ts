@@ -36,7 +36,12 @@ export async function POST(request: NextRequest) {
     // 2. Parse multipart form data
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
-    const leadsPerAgent = parseInt(formData.get('leads_per_agent') as string || '200', 10);
+    const state = (formData.get('state') as string || '').toUpperCase();
+
+    const validStates = ['FL', 'TX', 'CA'];
+    if (!state || !validStates.includes(state)) {
+      return NextResponse.json({ status: 'error', message: 'State is required. Must be FL, TX, or CA.' }, { status: 400 });
+    }
 
     if (!file) {
       return NextResponse.json({ status: 'error', message: 'No file uploaded' }, { status: 400 });
@@ -51,9 +56,9 @@ export async function POST(request: NextRequest) {
 
     // 3. Create batch record
     const batch = await queryOne<{ id: number }>(
-      `INSERT INTO lead_upload_batches (file_name, total_leads, uploaded_by, leads_per_agent)
+      `INSERT INTO lead_upload_batches (file_name, total_leads, uploaded_by, state)
        VALUES ($1, $2, $3, $4) RETURNING id`,
-      [file.name, leads.length, jwt.userId, leadsPerAgent]
+      [file.name, leads.length, jwt.userId, state]
     );
 
     if (!batch) {
@@ -72,19 +77,20 @@ export async function POST(request: NextRequest) {
 
       for (const lead of chunk) {
         placeholders.push(
-          `($${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++})`
+          `($${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++})`
         );
         values.push(
           lead.firm_name || null,
           lead.contact_person || null,
           lead.phone_number,
           JSON.stringify(lead.raw_data),
-          batch.id
+          batch.id,
+          state
         );
       }
 
       const result = await query(
-        `INSERT INTO dialer_leads (firm_name, contact_person, phone_number, raw_data, batch_id)
+        `INSERT INTO dialer_leads (firm_name, contact_person, phone_number, raw_data, batch_id, state)
          VALUES ${placeholders.join(', ')} RETURNING id`,
         values
       );
@@ -160,8 +166,8 @@ function parseCSV(csvText: string): Array<{
 
   // Find which columns map to our core fields
   const phoneCol = findColumn(headers, ['phone number', 'phone', 'tel', 'telephone', 'mobile']);
-  const firmCol = findColumn(headers, ['name of firm', 'firm', 'company', 'business name', 'company name']);
-  const contactCol = findColumn(headers, ['contact', 'contact person', 'contact name', 'name']);
+  const firmCol = findColumn(headers, ['name of firm', 'firm', 'company', 'business name', 'company name', 'business_name']);
+  const contactCol = findColumn(headers, ['contact', 'contact person', 'contact name', 'owner name', 'owner_name', 'full name', 'full_name', 'name']);
   const addressCol = findColumn(headers, ['address', 'address and city']);
 
   // Only the # column should be skipped

@@ -20,19 +20,20 @@ import {
   Clock,
   Trash2,
   Zap,
+  MapPin,
 } from 'lucide-react';
 
 interface Batch {
   id: number;
   file_name: string;
   total_leads: number;
-  leads_per_agent: number;
   distributed: boolean;
   created_at: string;
   uploaded_by_name: string;
   actual_leads: string;
   assigned_leads: string;
   called_leads: string;
+  state: string | null;
 }
 
 interface Stats {
@@ -77,15 +78,22 @@ export default function DialerLeadsPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedState, setSelectedState] = useState<string>('');
 
   // Delete state
   const [deletingBatchId, setDeletingBatchId] = useState<number | null>(null);
 
   // Distribution state
   const [distributing, setDistributing] = useState(false);
-  const [leadsPerAgent, setLeadsPerAgent] = useState(200);
+  const [manualLeadsPerAgent, setManualLeadsPerAgent] = useState(200);
   const [selectedAgents, setSelectedAgents] = useState<number[]>([]);
   const [distributionResult, setDistributionResult] = useState<DistributionResult[] | null>(null);
+
+  // Recall state
+  const [recalling, setRecalling] = useState(false);
+  const [recallKeepCount, setRecallKeepCount] = useState(50);
+  const [recallAgentId, setRecallAgentId] = useState<number | null>(null);
+  const [recallResult, setRecallResult] = useState<{ agent: string; recalled: number; kept: number }[] | null>(null);
 
   // Auto-distribution settings state
   const [distSettings, setDistSettings] = useState<DistSettings | null>(null);
@@ -124,7 +132,7 @@ export default function DialerLeadsPage() {
 
       if (settingsData.status === 'success') {
         setDistSettings(settingsData.data);
-        setLeadsPerAgent(settingsData.data.leads_per_agent || 200);
+        setManualLeadsPerAgent(settingsData.data.leads_per_agent || 200);
       }
     } catch (err) {
       console.error('Failed to fetch data:', err);
@@ -147,7 +155,7 @@ export default function DialerLeadsPage() {
       const token = api.getToken();
       const formData = new FormData();
       formData.append('file', selectedFile);
-      formData.append('leads_per_agent', leadsPerAgent.toString());
+      formData.append('state', selectedState);
 
       const res = await fetch('/api/hr/dialer-leads/upload', {
         method: 'POST',
@@ -160,6 +168,7 @@ export default function DialerLeadsPage() {
       if (data.status === 'success') {
         setUploadResult({ type: 'success', message: data.message });
         setSelectedFile(null);
+        setSelectedState('');
         // Reset file input
         const fileInput = document.getElementById('csv-file') as HTMLInputElement;
         if (fileInput) fileInput.value = '';
@@ -187,7 +196,7 @@ export default function DialerLeadsPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          leads_per_agent: leadsPerAgent,
+          leads_per_agent: manualLeadsPerAgent,
           agent_ids: selectedAgents.length > 0 ? selectedAgents : undefined,
         }),
       });
@@ -246,6 +255,35 @@ export default function DialerLeadsPage() {
     }
   };
 
+  const handleRecall = async () => {
+    if (!confirm(`Recall leads? Each agent will keep only ${recallKeepCount} pending leads. Extra leads return to fresh pool.`)) return;
+    setRecalling(true);
+    setRecallResult(null);
+    try {
+      const token = api.getToken();
+      const res = await fetch('/api/hr/dialer-leads/recall', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keep_count: recallKeepCount,
+          agent_id: recallAgentId || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (data.status === 'success') {
+        setRecallResult(data.data.breakdown);
+        setUploadResult({ type: 'success', message: data.message });
+        fetchData();
+      } else {
+        setUploadResult({ type: 'error', message: data.message });
+      }
+    } catch {
+      setUploadResult({ type: 'error', message: 'Failed to recall leads.' });
+    } finally {
+      setRecalling(false);
+    }
+  };
+
   const handleSaveSettings = async (updates: Partial<DistSettings & { regenerate_secret?: boolean }>) => {
     setSavingSettings(true);
     try {
@@ -258,7 +296,7 @@ export default function DialerLeadsPage() {
       const data = await res.json();
       if (data.status === 'success') {
         setDistSettings(data.data);
-        setLeadsPerAgent(data.data.leads_per_agent);
+        setManualLeadsPerAgent(data.data.leads_per_agent);
         setUploadResult({ type: 'success', message: data.message });
       } else {
         setUploadResult({ type: 'error', message: data.message });
@@ -362,21 +400,25 @@ export default function DialerLeadsPage() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Leads Per Agent (daily limit)
+                <MapPin className="h-4 w-4 inline mr-1" />
+                US State
               </label>
-              <input
-                type="number"
-                value={leadsPerAgent}
-                onChange={(e) => setLeadsPerAgent(parseInt(e.target.value) || 200)}
-                min={1}
-                max={1000}
+              <select
+                value={selectedState}
+                onChange={(e) => setSelectedState(e.target.value)}
                 className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
+              >
+                <option value="">Select State...</option>
+                <option value="FL">Florida (FL) — Eastern</option>
+                <option value="TX">Texas (TX) — Central</option>
+                <option value="CA">California (CA) — Pacific</option>
+              </select>
+              <p className="text-xs text-gray-400 mt-1">Leads will be routed to agents based on optimal call times for this state</p>
             </div>
 
             <button
               onClick={handleUpload}
-              disabled={!selectedFile || uploading}
+              disabled={!selectedFile || !selectedState || uploading}
               className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
             >
               {uploading ? (
@@ -440,6 +482,20 @@ export default function DialerLeadsPage() {
               </p>
             </div>
 
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Leads Per Agent
+              </label>
+              <input
+                type="number"
+                value={manualLeadsPerAgent}
+                onChange={(e) => setManualLeadsPerAgent(parseInt(e.target.value) || 50)}
+                min={1}
+                max={5000}
+                className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+              />
+            </div>
+
             <button
               onClick={handleDistribute}
               disabled={distributing || !stats || (parseInt(stats.fresh || '0') + parseInt(stats.recycle || '0') + parseInt(stats.callback || '0')) === 0}
@@ -453,7 +509,7 @@ export default function DialerLeadsPage() {
               ) : (
                 <>
                   <Users className="h-4 w-4" />
-                  Distribute {leadsPerAgent}/agent
+                  Distribute {manualLeadsPerAgent}/agent
                 </>
               )}
             </button>
@@ -474,6 +530,82 @@ export default function DialerLeadsPage() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* Recall Leads */}
+      <div className="bg-white rounded-xl border p-6">
+        <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
+          <Recycle className="h-5 w-5 text-red-600" />
+          Recall Leads
+        </h2>
+        <p className="text-sm text-gray-500 mb-4">
+          Take back extra pending leads from agents. Recalled leads return to the fresh pool for redistribution.
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Agent</label>
+            <select
+              value={recallAgentId ?? ''}
+              onChange={(e) => setRecallAgentId(e.target.value ? parseInt(e.target.value) : null)}
+              className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
+            >
+              <option value="">All Agents</option>
+              {agents.map((agent) => (
+                <option key={agent.id} value={agent.id}>{agent.full_name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Keep Per Agent</label>
+            <input
+              type="number"
+              value={recallKeepCount}
+              onChange={(e) => setRecallKeepCount(parseInt(e.target.value) || 0)}
+              min={0}
+              max={5000}
+              className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
+            />
+            <p className="text-xs text-gray-400 mt-1">Leads above this count will be recalled</p>
+          </div>
+
+          <div className="flex items-end">
+            <button
+              onClick={handleRecall}
+              disabled={recalling}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium text-sm"
+            >
+              {recalling ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Recalling...
+                </>
+              ) : (
+                <>
+                  <Recycle className="h-4 w-4" />
+                  Recall Excess Leads
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {recallResult && recallResult.length > 0 && (
+          <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-3">
+            <p className="text-sm font-medium text-red-800 mb-2">Recall Complete:</p>
+            <div className="space-y-1">
+              {recallResult.map((r, i) => (
+                <div key={i} className="flex items-center justify-between text-sm">
+                  <span className="text-red-700">{r.agent}</span>
+                  <span className="font-medium text-red-900">
+                    {r.recalled > 0 ? `${r.recalled} recalled, ${r.kept} kept` : `${r.kept} kept (no change)`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Auto-Distribution Settings */}
@@ -582,11 +714,11 @@ export default function DialerLeadsPage() {
               <thead>
                 <tr className="border-b text-left text-gray-500">
                   <th className="pb-3 font-medium">File</th>
+                  <th className="pb-3 font-medium">State</th>
                   <th className="pb-3 font-medium">Uploaded By</th>
                   <th className="pb-3 font-medium text-center">Total</th>
                   <th className="pb-3 font-medium text-center">Assigned</th>
                   <th className="pb-3 font-medium text-center">Called</th>
-                  <th className="pb-3 font-medium text-center">Per Agent</th>
                   <th className="pb-3 font-medium">Date</th>
                   <th className="pb-3 font-medium text-center">Actions</th>
                 </tr>
@@ -602,6 +734,19 @@ export default function DialerLeadsPage() {
                         </span>
                       </div>
                     </td>
+                    <td className="py-3">
+                      {batch.state ? (
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                          batch.state === 'FL' ? 'bg-orange-100 text-orange-800' :
+                          batch.state === 'TX' ? 'bg-red-100 text-red-800' :
+                          'bg-blue-100 text-blue-800'
+                        }`}>
+                          {batch.state}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400 text-xs">—</span>
+                      )}
+                    </td>
                     <td className="py-3 text-gray-600">{batch.uploaded_by_name || 'Unknown'}</td>
                     <td className="py-3 text-center font-medium">{batch.actual_leads}</td>
                     <td className="py-3 text-center">
@@ -614,7 +759,6 @@ export default function DialerLeadsPage() {
                         {batch.called_leads}
                       </span>
                     </td>
-                    <td className="py-3 text-center text-gray-600">{batch.leads_per_agent}</td>
                     <td className="py-3 text-gray-500">
                       {new Date(batch.created_at).toLocaleDateString('en-US', {
                         month: 'short',

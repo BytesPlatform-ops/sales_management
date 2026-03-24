@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
+import { getStateRoutingOrder } from '@/lib/timezone-router';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,18 +30,71 @@ export async function GET(request: NextRequest) {
     const { payload } = await jwtVerify(token, JWT_SECRET);
     const jwt = payload as unknown as JwtPayload;
 
-    // Get next pending lead for this agent (all assigned, not date-filtered)
-    const nextLead = await queryOne<any>(
-      `SELECT id, firm_name, contact_person, phone_number, raw_data,
-              what_to_offer, talking_points, ai_generated,
-              call_outcome, call_notes, call_count, last_called_at
-       FROM dialer_leads
-       WHERE assigned_agent_id = $1
-         AND call_outcome = 'pending'
-       ORDER BY assigned_date DESC NULLS LAST, id ASC
-       LIMIT 1`,
-      [jwt.userId]
-    );
+    // Timezone-based routing: get optimal state order based on current time
+    const routing = getStateRoutingOrder();
+    let nextLead: any = null;
+
+    if (routing.isDeadZone) {
+      // DEAD ZONE: Serve recycle/callback leads first, then fresh as last resort
+      nextLead = await queryOne<any>(
+        `SELECT id, firm_name, contact_person, phone_number, raw_data,
+                what_to_offer, talking_points, ai_generated,
+                call_outcome, call_notes, call_count, last_called_at, state
+         FROM dialer_leads
+         WHERE assigned_agent_id = $1
+           AND call_outcome = 'pending'
+           AND pool = 'active'
+           AND (call_count > 0 OR state IS NULL)
+         ORDER BY call_count DESC, assigned_date DESC NULLS LAST, id ASC
+         LIMIT 1`,
+        [jwt.userId]
+      );
+      // If no recycled leads, fall back to any pending lead
+      if (!nextLead) {
+        nextLead = await queryOne<any>(
+          `SELECT id, firm_name, contact_person, phone_number, raw_data,
+                  what_to_offer, talking_points, ai_generated,
+                  call_outcome, call_notes, call_count, last_called_at, state
+           FROM dialer_leads
+           WHERE assigned_agent_id = $1
+             AND call_outcome = 'pending'
+           ORDER BY assigned_date DESC NULLS LAST, id ASC
+           LIMIT 1`,
+          [jwt.userId]
+        );
+      }
+    } else {
+      // GOLDEN/BEST/GOOD: Try each state in priority order
+      for (const state of routing.states) {
+        nextLead = await queryOne<any>(
+          `SELECT id, firm_name, contact_person, phone_number, raw_data,
+                  what_to_offer, talking_points, ai_generated,
+                  call_outcome, call_notes, call_count, last_called_at, state
+           FROM dialer_leads
+           WHERE assigned_agent_id = $1
+             AND call_outcome = 'pending'
+             AND state = $2
+           ORDER BY assigned_date DESC NULLS LAST, id ASC
+           LIMIT 1`,
+          [jwt.userId, state]
+        );
+        if (nextLead) break;
+      }
+      // Fallback: leads without state tag (legacy) or any remaining
+      if (!nextLead) {
+        nextLead = await queryOne<any>(
+          `SELECT id, firm_name, contact_person, phone_number, raw_data,
+                  what_to_offer, talking_points, ai_generated,
+                  call_outcome, call_notes, call_count, last_called_at, state
+           FROM dialer_leads
+           WHERE assigned_agent_id = $1
+             AND call_outcome = 'pending'
+           ORDER BY assigned_date DESC NULLS LAST, id ASC
+           LIMIT 1`,
+          [jwt.userId]
+        );
+      }
+    }
 
     // Stats: leads currently assigned + leads this agent already called (now recycled/dead/etc)
     const agentId = Number(jwt.userId);
@@ -70,6 +124,7 @@ export async function GET(request: NextRequest) {
         data: null,
         hasMore: false,
         stats,
+        routing: { slot: routing.slotInfo, isDeadZone: routing.isDeadZone },
         message: 'No more leads',
       });
     }
@@ -97,6 +152,7 @@ export async function GET(request: NextRequest) {
       hasMore: upcoming.length > 0,
       upcoming,
       stats,
+      routing: { slot: routing.slotInfo, isDeadZone: routing.isDeadZone },
     });
   } catch (error) {
     console.error('Agent dialer-leads next error:', error);
