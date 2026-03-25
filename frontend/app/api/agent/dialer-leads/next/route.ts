@@ -83,31 +83,30 @@ export async function GET(request: NextRequest) {
       );
 
       // 2. If no assigned leads for primary state, auto-pull from fresh pool
+      //    Uses atomic UPDATE ... RETURNING to prevent race conditions between agents
       if (!nextLead) {
-        const freshLead = await queryOne<any>(
-          `SELECT id, firm_name, contact_person, phone_number, raw_data,
-                  what_to_offer, talking_points, ai_generated,
-                  call_outcome, call_notes, call_count, last_called_at, state
-           FROM dialer_leads
-           WHERE pool = 'fresh'
-             AND assigned_agent_id IS NULL
-             AND state = $1
-           ORDER BY id ASC
-           LIMIT 1`,
-          [primaryState]
+        const today = new Date().toISOString().split('T')[0];
+        const autoPulled = await queryOne<any>(
+          `UPDATE dialer_leads
+           SET assigned_agent_id = $1, assigned_date = $2, pool = 'active'
+           WHERE id = (
+             SELECT id FROM dialer_leads
+             WHERE pool = 'fresh'
+               AND assigned_agent_id IS NULL
+               AND state = $3
+             ORDER BY id ASC
+             LIMIT 1
+             FOR UPDATE SKIP LOCKED
+           )
+           RETURNING id, firm_name, contact_person, phone_number, raw_data,
+                     what_to_offer, talking_points, ai_generated,
+                     call_outcome, call_notes, call_count, last_called_at, state`,
+          [jwt.userId, today, primaryState]
         );
 
-        if (freshLead) {
-          // Auto-assign this fresh lead to the agent
-          const today = new Date().toISOString().split('T')[0];
-          await queryOne(
-            `UPDATE dialer_leads
-             SET assigned_agent_id = $1, assigned_date = $2, pool = 'active'
-             WHERE id = $3`,
-            [jwt.userId, today, freshLead.id]
-          );
-          nextLead = freshLead;
-          console.log(`🎯 AUTO-PULL: Fresh ${primaryState} lead #${freshLead.id} → agent ${jwt.userId} (${routing.slotInfo.type} hour)`);
+        if (autoPulled) {
+          nextLead = autoPulled;
+          console.log(`🎯 AUTO-PULL: Fresh ${primaryState} lead #${autoPulled.id} → agent ${jwt.userId} (${routing.slotInfo.type} hour)`);
         }
       }
 

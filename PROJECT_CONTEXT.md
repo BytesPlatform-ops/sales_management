@@ -32,6 +32,10 @@ A sales team management platform built with **Next.js 14 (frontend + API routes)
   - Recycle: previous_agents JSONB, max_attempts (default 3), recycle_after_days (default 15), last_outcome_at
   - Pipeline: pipeline_stage, follow_up_at, deal_value, pipeline_notes
   - Routing: `state` VARCHAR(2) — US state code (FL/TX/CA) for timezone-based lead serving
+- `dialer_call_logs` — call history per lead (1-to-many with dialer_leads):
+  - lead_id, agent_id, call_outcome, call_outcomes JSONB, notes, pool_after, call_number, created_at
+  - Preserves full history even after recycle resets dialer_leads fields
+  - Indexes: idx_dcl_lead, idx_dcl_agent, idx_dcl_created
 - `distribution_settings` — single-row config table:
   - leads_per_agent (default 200), auto_distribute_enabled, auto_distribute_time (PKT, default '19:00')
   - cron_secret (legacy, not used with in-app scheduler), last_auto_distributed_at
@@ -58,6 +62,7 @@ pending, interested, not_interested, voicemail, busy, gatekeeper, owner_picked, 
 - **API**: `POST /api/hr/dialer-leads/distribute` — manual distribution by HR
 - **Shared logic**: `frontend/lib/auto-distribute.ts` — used by both manual API and auto-scheduler
 - **Priority order**: 1) Callback leads (same agent) → 2) Recycled leads (different agent) → 3) Fresh leads
+- **State-aware round-robin**: Fresh leads distributed evenly across all available states (FL/TX/CA) — not just by ID order
 - Recycle logic: avoids assigning to previous agents, respects recycle_after_days
 - Configurable leads_per_agent (separate for manual distribute and auto-distribute), optional agent selection for manual distribute
 - **Auto top-up**: If agent has 150 pending and limit is 200, only 50 new leads are assigned
@@ -66,8 +71,8 @@ pending, interested, not_interested, voicemail, busy, gatekeeper, owner_picked, 
 - **Scheduler**: `frontend/instrumentation.ts` — starts on server boot, checks every 60 seconds
 - **Logic**: `frontend/lib/auto-distribute.ts` → `checkAndAutoDistribute()`
   - Checks if auto_distribute_enabled is true
-  - Compares current PKT time with configured auto_distribute_time
   - Checks if already ran today (prevents duplicate runs)
+  - Runs if current PKT time >= configured time (catches late server starts / restarts)
   - Distributes to ALL active agents using shared distribute logic
 - **Settings API**: `GET/PUT /api/hr/dialer-leads/settings`
 - **Settings table**: `distribution_settings` (single row, id=1)
@@ -86,7 +91,8 @@ pending, interested, not_interested, voicemail, busy, gatekeeper, owner_picked, 
 - **Page**: `/agent/dialer-leads` (sidebar label: "My Leads")
 - Compact card: avatar, firm name, contact, phone (copy), email, website, address, business description
 - Progress bar with pool stats (counts include recycled leads via previous_agents JSONB check)
-- **Multiple outcome selection** (toggle style) — agent can select multiple (e.g., Interested + Owner Picked)
+- **Outcome selection**: Multi-select dropdown (not button grid) — opens upward, checkboxes per outcome, selected shown as colored chips with X to remove
+- 8 outcomes: Interested, Not Interested, Gatekeeper, Owner Picked, Voicemail, Busy, Callback, Bad Number
 - Submit & Next button + arrow skip button
 - Notes field per call
 - Sidebar: removed old "Import Leads" and "Power Dialer" links from agent nav
@@ -103,13 +109,17 @@ pending, interested, not_interested, voicemail, busy, gatekeeper, owner_picked, 
 
 ### 7. Lead Pool System
 - **Pools**: fresh → active → [interested | recycle | callback | dead]
-- **Pool rules on outcome**:
+- **Pool rules on outcome** (priority-based, NOT array-index-based):
   - interested / owner_picked → `interested` pool (pipeline_stage = 'new_interested')
   - callback → `callback` pool (same agent gets it back)
-  - bad_number → `dead` pool
-  - everything else (not_interested, VM, busy, gatekeeper, DNC) → `recycle` pool (different agent after 15 days)
+  - bad_number / gatekeeper → `dead` pool (unreachable)
+  - everything else (not_interested, VM, busy, DNC) → `recycle` pool (different agent after 15 days)
   - After 3 max attempts → `dead` pool
+- **Outcome priority hierarchy**: interested > owner_picked > callback > not_interested > voicemail > busy > dnc > gatekeeper > bad_number
+  - If agent selects multiple outcomes, highest-priority one determines pool + stored `call_outcome`
+  - Positive outcomes (interested, callback) always win over negative (gatekeeper, bad_number)
 - `previous_agents` JSONB tracks which agents already called this lead
+- **Call history**: Every outcome log inserts into `dialer_call_logs` — full history preserved even after recycle
 - HR dashboard shows 7 pool stat cards
 
 ### 8. Interested Leads Pipeline
@@ -149,7 +159,9 @@ pending, interested, not_interested, voicemail, busy, gatekeeper, owner_picked, 
   - GOOD window: 3:00-4:00 PM local → serve fresh leads from that state
   - DEAD ZONE (lunch/post-lunch): serve recycled leads only, protect fresh inventory
 - **Next lead API** (`agent/dialer-leads/next/route.ts`):
-  - Tries optimal state first, then other states, then any remaining leads
+  - Tries optimal state's assigned leads first
+  - **Auto-pull from fresh pool**: If agent exhausts assigned leads for the golden/best state, system auto-assigns a fresh lead from that state's pool (atomic `FOR UPDATE SKIP LOCKED` — no race conditions)
+  - Falls back to other states' assigned leads only if primary state fully exhausted (assigned + fresh)
   - Dead zone mode: prioritizes `call_count > 0` (recycled) leads over fresh
   - Returns `routing` info in response (slot type, target state, dead zone flag)
 - **HR Upload UI**: State dropdown (FL/TX/CA) required before upload, state badge in batch history
@@ -203,6 +215,7 @@ frontend/next.config.js                — instrumentationHook: true enabled
 frontend/components/layout/sidebar.tsx  — Navigation (role-based, Pipeline added for both roles)
 frontend/.env                          — DB creds, JWT secret, OpenAI key, 3CX config
 database/migrations/create_dialer_leads.sql — Full schema + distribution_settings table
+database/migrations/create_call_logs.sql   — dialer_call_logs table (call history per lead)
 ```
 
 ## Timezone-Based Lead Routing (Smart Routing Engine)
@@ -301,9 +314,9 @@ database/migrations/create_dialer_leads.sql — Full schema + distribution_setti
 - Timezone: PKT (Asia/Karachi) — agents work US night shifts. Server may run UTC. Don't filter by `assigned_date = today` strictly — use pool-based filtering instead
 - Old `leads` table and Power Dialer (`/agent/dialer`) still exist — don't touch them
 - CSV columns are NOT fixed — that's why raw_data is JSONB
-- Multiple outcomes per lead (call_outcomes JSONB array), primary outcome in call_outcome enum
+- Multiple outcomes per lead (call_outcomes JSONB array), primary outcome determined by priority hierarchy (NOT array order)
 - Recycle leads go to DIFFERENT agents (tracked via previous_agents)
-- Only `bad_number` goes to dead pool. DNC, not_interested etc. all recycle
+- `bad_number` and `gatekeeper` go to dead pool. DNC, not_interested etc. all recycle
 - Agent stats counter uses `previous_agents @> '[agentId]'::jsonb` to include recycled leads in the count
 - Manual distribute has its own "Leads Per Agent" input (separate from auto-distribution settings)
 - HR can recall excess leads via Recall section — keeps N leads per agent, returns rest to fresh pool
@@ -312,3 +325,9 @@ database/migrations/create_dialer_leads.sql — Full schema + distribution_setti
 - SQL parameters used in both SET and WHERE/CASE need explicit `::varchar` cast to avoid "inconsistent types" error
 - Agent deactivation automatically returns pending leads to fresh pool
 - Auto-distribution uses in-app scheduler (instrumentation.ts), NOT external cron
+- Auto-distribute runs if current time >= configured time (not exact match) — handles late server starts
+- Fresh lead distribution is state-aware round-robin — agents get leads from all uploaded states evenly
+- Next lead auto-pulls from fresh pool during golden/best hours if agent's assigned leads for that state are exhausted
+- Auto-pull uses `FOR UPDATE SKIP LOCKED` to prevent race conditions between agents
+- `dialer_call_logs` preserves full call history — `call_logs` table is for 3CX recordings (DO NOT TOUCH)
+- Existing `call_logs` table (3CX) has 11k+ records — completely separate from dialer system

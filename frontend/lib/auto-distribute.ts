@@ -259,10 +259,7 @@ export async function checkAndAutoDistribute() {
 
     const targetTime = settings.auto_distribute_time || '19:00';
 
-    // Only run at the exact configured minute
-    if (currentTime !== targetTime) return;
-
-    // Check if already ran today
+    // Check if already ran today — if yes, skip
     if (settings.last_auto_distributed_at) {
       const lastRun = new Date(settings.last_auto_distributed_at);
       const lastRunPKT = new Date(lastRun.toLocaleString('en-US', { timeZone: 'Asia/Karachi' }));
@@ -274,6 +271,9 @@ export async function checkAndAutoDistribute() {
         return; // Already ran today
       }
     }
+
+    // Run if current time >= configured time (catches late server starts / restarts)
+    if (currentTime < targetTime) return;
 
     console.log(`🤖 AUTO-DISTRIBUTE: Triggered at ${currentTime} PKT`);
 

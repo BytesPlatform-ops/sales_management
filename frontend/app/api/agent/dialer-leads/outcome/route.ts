@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
-import { queryOne } from '@/lib/db';
+import { query, queryOne } from '@/lib/db';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
@@ -32,22 +32,33 @@ const VALID_OUTCOMES = [
  * - everything else (not_interested, voicemail, busy, dnc) → 'recycle'
  *   recycled to different agent after recycle_after_days, up to max_attempts
  */
-function determinePool(outcomes: string[], callCount: number, maxAttempts: number): { pool: string; pipelineStage: string | null } {
-  if (outcomes.includes('interested') || outcomes.includes('owner_picked')) {
-    return { pool: 'interested', pipelineStage: 'new_interested' };
+// Priority hierarchy: highest-priority outcome determines pool + stored call_outcome
+// Positive outcomes first (keep lead alive), negative outcomes last
+const OUTCOME_PRIORITY: string[] = [
+  'interested', 'owner_picked', 'callback',
+  'not_interested', 'voicemail', 'busy', 'dnc',
+  'gatekeeper', 'bad_number',
+];
+
+function determinePool(outcomes: string[], callCount: number, maxAttempts: number): { pool: string; pipelineStage: string | null; primaryOutcome: string } {
+  // Pick the highest-priority outcome from the selected array
+  const primary = OUTCOME_PRIORITY.find(o => outcomes.includes(o)) || outcomes[0];
+
+  if (primary === 'interested' || primary === 'owner_picked') {
+    return { pool: 'interested', pipelineStage: 'new_interested', primaryOutcome: primary };
   }
-  if (outcomes.includes('callback')) {
-    return { pool: 'callback', pipelineStage: null };
+  if (primary === 'callback') {
+    return { pool: 'callback', pipelineStage: null, primaryOutcome: primary };
   }
-  if (outcomes.includes('bad_number') || outcomes.includes('gatekeeper')) {
-    return { pool: 'dead', pipelineStage: null };
+  if (primary === 'bad_number' || primary === 'gatekeeper') {
+    return { pool: 'dead', pipelineStage: null, primaryOutcome: primary };
   }
 
   // Everything else recycles — unless max attempts reached
   if (callCount + 1 >= maxAttempts) {
-    return { pool: 'dead', pipelineStage: null };
+    return { pool: 'dead', pipelineStage: null, primaryOutcome: primary };
   }
-  return { pool: 'recycle', pipelineStage: null };
+  return { pool: 'recycle', pipelineStage: null, primaryOutcome: primary };
 }
 
 export async function POST(request: NextRequest) {
@@ -98,11 +109,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: 'error', message: 'Lead not assigned to you' }, { status: 403 });
     }
 
-    const primaryOutcome = outcomes[0];
     const currentCount = Number(lead.call_count) || 0;
     const maxAttempts = Number(lead.max_attempts) || 3;
 
-    const { pool, pipelineStage } = determinePool(outcomes, currentCount, maxAttempts);
+    const { pool, pipelineStage, primaryOutcome } = determinePool(outcomes, currentCount, maxAttempts);
     console.log('📋 OUTCOME: lead_id =', lead_id, 'outcomes =', outcomes, 'pool =', pool, 'pipelineStage =', pipelineStage);
 
     // Track previous agents (for recycle — don't assign to same agent again)
@@ -150,6 +160,13 @@ export async function POST(request: NextRequest) {
     );
 
     console.log('📋 OUTCOME: Update result:', JSON.stringify(updated));
+
+    // Insert call log for history preservation
+    await query(
+      `INSERT INTO dialer_call_logs (lead_id, agent_id, call_outcome, call_outcomes, notes, pool_after, call_number)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [lead_id, Number(jwt.userId), primaryOutcome, JSON.stringify(outcomes), notes || null, pool, currentCount + 1]
+    );
 
     return NextResponse.json({
       status: 'success',

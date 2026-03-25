@@ -62,10 +62,10 @@ export async function POST(request: NextRequest) {
     let totalRecalled = 0;
 
     for (const agent of agents) {
-      // Get all pending leads for this agent, ordered by id ASC (oldest first kept)
+      // Get all pending active leads for this agent, ordered by id ASC (oldest first kept)
       const pendingLeads = await query<{ id: number }>(
         `SELECT id FROM dialer_leads
-         WHERE assigned_agent_id = $1 AND call_outcome = 'pending'
+         WHERE assigned_agent_id = $1 AND call_outcome = 'pending' AND pool = 'active'
          ORDER BY id ASC`,
         [agent.id]
       );
