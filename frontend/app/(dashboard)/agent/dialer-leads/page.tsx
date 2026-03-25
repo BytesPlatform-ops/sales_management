@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { api } from '@/lib/api-client';
 import {
@@ -26,6 +26,8 @@ import {
   ExternalLink,
   MessageSquare,
   Send,
+  ChevronDown,
+  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -80,6 +82,8 @@ export default function AgentDialerLeadsPage() {
   const [copiedPhone, setCopiedPhone] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [selectedOutcomes, setSelectedOutcomes] = useState<string[]>([]);
+  const [outcomeDropdownOpen, setOutcomeDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const fetchNextLead = useCallback(async () => {
     console.log('🔵 fetchNextLead called');
@@ -139,6 +143,17 @@ export default function AgentDialerLeadsPage() {
   };
 
   useEffect(() => { fetchNextLead(); }, [fetchNextLead]);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setOutcomeDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const toggleOutcome = (value: string) => {
     setSelectedOutcomes((prev) =>
@@ -366,32 +381,74 @@ export default function AgentDialerLeadsPage() {
             />
           </div>
 
-          {/* Outcome Buttons - Toggle Style */}
+          {/* Outcome Dropdown - Multi Select */}
           <div className="border-t px-5 py-3">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Log Outcome</span>
-              {selectedOutcomes.length > 0 && (
-                <span className="text-[10px] text-indigo-600 font-semibold">{selectedOutcomes.length} selected</span>
-              )}
             </div>
-            <div className="grid grid-cols-4 gap-1.5">
-              {OUTCOME_BUTTONS.map((btn) => {
-                const Icon = btn.icon;
-                const isSelected = selectedOutcomes.includes(btn.value);
-                return (
-                  <button
-                    key={btn.value}
-                    onClick={() => toggleOutcome(btn.value)}
-                    className={cn(
-                      'flex flex-col items-center gap-1 px-2 py-2 rounded-lg text-[10px] font-bold border transition-all',
-                      isSelected ? btn.selected : btn.unselected
-                    )}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {btn.label}
-                  </button>
-                );
-              })}
+
+            {/* Selected outcomes as chips */}
+            {selectedOutcomes.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {selectedOutcomes.map((val) => {
+                  const btn = OUTCOME_BUTTONS.find(b => b.value === val);
+                  if (!btn) return null;
+                  const Icon = btn.icon;
+                  return (
+                    <span
+                      key={val}
+                      className={cn('inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold text-white', btn.bg)}
+                    >
+                      <Icon className="h-3 w-3" />
+                      {btn.label}
+                      <button
+                        onClick={() => toggleOutcome(val)}
+                        className="ml-0.5 hover:opacity-70"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Dropdown */}
+            <div ref={dropdownRef} className="relative">
+              <button
+                onClick={() => setOutcomeDropdownOpen(!outcomeDropdownOpen)}
+                className="w-full flex items-center justify-between px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm hover:border-indigo-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+              >
+                <span className={selectedOutcomes.length > 0 ? 'text-gray-700 font-medium' : 'text-gray-400'}>
+                  {selectedOutcomes.length > 0 ? `${selectedOutcomes.length} outcome${selectedOutcomes.length > 1 ? 's' : ''} selected` : 'Select outcome...'}
+                </span>
+                <ChevronDown className={cn('h-4 w-4 text-gray-400 transition-transform', outcomeDropdownOpen && 'rotate-180')} />
+              </button>
+
+              {outcomeDropdownOpen && (
+                <div className="absolute bottom-full left-0 right-0 mb-1 bg-white border border-gray-200 rounded-lg shadow-xl z-50 max-h-64 overflow-y-auto">
+                  {OUTCOME_BUTTONS.map((btn) => {
+                    const Icon = btn.icon;
+                    const isSelected = selectedOutcomes.includes(btn.value);
+                    return (
+                      <button
+                        key={btn.value}
+                        onClick={() => toggleOutcome(btn.value)}
+                        className={cn(
+                          'w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium transition-colors',
+                          isSelected ? 'bg-indigo-50 text-indigo-700' : 'text-gray-700 hover:bg-gray-50'
+                        )}
+                      >
+                        <div className={cn('w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0', isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-gray-300')}>
+                          {isSelected && <Check className="h-3 w-3 text-white" />}
+                        </div>
+                        <Icon className={cn('h-4 w-4 flex-shrink-0', isSelected ? 'text-indigo-600' : 'text-gray-400')} />
+                        <span>{btn.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 

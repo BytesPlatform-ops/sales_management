@@ -38,6 +38,7 @@ export async function distributeLeads(leadsPerAgent: number, agentIds?: number[]
 
   // 3. Calculate needs
   const agentNeeds: { id: number; full_name: string; needed: number }[] = [];
+  const agentBreakdown = new Map<string, number>(); // tracks total distributed per agent
   let totalNeeded = 0;
 
   for (const agent of agents) {
@@ -73,6 +74,7 @@ export async function distributeLeads(leadsPerAgent: number, agentIds?: number[]
       need.needed--;
       totalNeeded--;
       callbackCount++;
+      agentBreakdown.set(need.full_name, (agentBreakdown.get(need.full_name) || 0) + 1);
     }
   }
 
@@ -133,6 +135,7 @@ export async function distributeLeads(leadsPerAgent: number, agentIds?: number[]
        WHERE id = ANY($3)`,
       [dist.agentId, today, dist.leadIds]
     );
+    agentBreakdown.set(dist.agentName, (agentBreakdown.get(dist.agentName) || 0) + dist.leadIds.length);
   }
 
   // Recalculate remaining needs
@@ -142,33 +145,71 @@ export async function distributeLeads(leadsPerAgent: number, agentIds?: number[]
   }
   totalNeeded = agentNeeds.reduce((sum, a) => sum + a.needed, 0);
 
-  // 6. PRIORITY 3: Fresh leads
+  // 6. PRIORITY 3: Fresh leads — state-aware round-robin
+  // Fetch fresh leads grouped by state so each agent gets leads from all states evenly
   let freshCount = 0;
   if (totalNeeded > 0) {
-    const freshLeads = await query<{ id: number }>(
-      `SELECT id FROM dialer_leads
-       WHERE pool = 'fresh' AND assigned_agent_id IS NULL
-       ORDER BY id ASC
-       LIMIT $1`,
-      [totalNeeded]
+    // Get available states
+    const availableStates = await query<{ state: string | null }>(
+      `SELECT DISTINCT state FROM dialer_leads
+       WHERE pool = 'fresh' AND assigned_agent_id IS NULL`
     );
+    const states = availableStates.map(r => r.state);
+
+    // Fetch fresh leads per state
+    const freshByState: Map<string | null, number[]> = new Map();
+    for (const state of states) {
+      const leads = await query<{ id: number }>(
+        state === null
+          ? `SELECT id FROM dialer_leads WHERE pool = 'fresh' AND assigned_agent_id IS NULL AND state IS NULL ORDER BY id ASC`
+          : `SELECT id FROM dialer_leads WHERE pool = 'fresh' AND assigned_agent_id IS NULL AND state = $1 ORDER BY id ASC`,
+        state === null ? [] : [state]
+      );
+      if (leads.length > 0) {
+        freshByState.set(state, leads.map(l => l.id));
+      }
+    }
 
     const freshDist = agentNeeds.filter(a => a.needed > 0).map(a => ({ agentId: a.id, agentName: a.full_name, leadIds: [] as number[] }));
 
-    let idx = 0;
-    for (const fl of freshLeads) {
-      let attempts = 0;
-      while (attempts < freshDist.length) {
-        const dist = freshDist[idx % freshDist.length];
-        const need = agentNeeds.find(a => a.id === dist.agentId)!;
-        if (dist.leadIds.length < need.needed) {
-          dist.leadIds.push(Number(fl.id));
-          idx++;
-          freshCount++;
-          break;
+    if (freshByState.size > 0) {
+      // Round-robin: pick one lead from each state in turn for each agent
+      const stateKeys = Array.from(freshByState.keys());
+      const stateIndexes = new Map(stateKeys.map(s => [s, 0])); // track position per state
+
+      let agentIdx = 0;
+      let assigned = true;
+      while (assigned) {
+        assigned = false;
+        for (const stateKey of stateKeys) {
+          const ids = freshByState.get(stateKey)!;
+          const stateIdx = stateIndexes.get(stateKey)!;
+          if (stateIdx >= ids.length) continue; // this state exhausted
+
+          // Try to assign to next agent who still needs leads
+          let attempts = 0;
+          while (attempts < freshDist.length) {
+            const dist = freshDist[agentIdx % freshDist.length];
+            const need = agentNeeds.find(a => a.id === dist.agentId)!;
+            if (dist.leadIds.length < need.needed) {
+              dist.leadIds.push(ids[stateIdx]);
+              stateIndexes.set(stateKey, stateIdx + 1);
+              freshCount++;
+              agentIdx++;
+              assigned = true;
+              break;
+            }
+            agentIdx++;
+            attempts++;
+          }
+          if (attempts >= freshDist.length) break; // all agents full
         }
-        idx++;
-        attempts++;
+        // Check if all agents are full
+        const allFull = freshDist.every(d => {
+          const need = agentNeeds.find(a => a.id === d.agentId)!;
+          return d.leadIds.length >= need.needed;
+        });
+        if (allFull) break;
       }
     }
 
@@ -180,25 +221,18 @@ export async function distributeLeads(leadsPerAgent: number, agentIds?: number[]
          WHERE id = ANY($3)`,
         [dist.agentId, today, dist.leadIds]
       );
+      agentBreakdown.set(dist.agentName, (agentBreakdown.get(dist.agentName) || 0) + dist.leadIds.length);
     }
   }
 
   const totalDistributed = callbackCount + recycledCount + freshCount;
-
-  // Build breakdown
-  const allDists = new Map<string, number>();
-  for (const dist of distribution) {
-    if (dist.leadIds.length > 0) {
-      allDists.set(dist.agentName, (allDists.get(dist.agentName) || 0) + dist.leadIds.length);
-    }
-  }
 
   return {
     distributed: totalDistributed,
     callbacks: callbackCount,
     recycled: recycledCount,
     fresh: freshCount,
-    breakdown: Array.from(allDists.entries()).map(([agent, count]) => ({ agent, count })),
+    breakdown: Array.from(agentBreakdown.entries()).map(([agent, count]) => ({ agent, count })),
     message: `Distributed ${totalDistributed} leads (${callbackCount} callbacks, ${recycledCount} recycled, ${freshCount} fresh)`,
   };
 }

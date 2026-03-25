@@ -28,8 +28,8 @@ const VALID_OUTCOMES = [
  * Pool logic:
  * - interested / owner_picked → 'interested' pool (pipeline starts)
  * - callback                  → 'callback' pool (same agent, specific date)
- * - bad_number                → 'dead' pool (number doesn't work)
- * - everything else (not_interested, voicemail, busy, gatekeeper, dnc) → 'recycle'
+ * - bad_number / gatekeeper   → 'dead' pool (unreachable)
+ * - everything else (not_interested, voicemail, busy, dnc) → 'recycle'
  *   recycled to different agent after recycle_after_days, up to max_attempts
  */
 function determinePool(outcomes: string[], callCount: number, maxAttempts: number): { pool: string; pipelineStage: string | null } {
@@ -39,7 +39,7 @@ function determinePool(outcomes: string[], callCount: number, maxAttempts: numbe
   if (outcomes.includes('callback')) {
     return { pool: 'callback', pipelineStage: null };
   }
-  if (outcomes.includes('bad_number')) {
+  if (outcomes.includes('bad_number') || outcomes.includes('gatekeeper')) {
     return { pool: 'dead', pipelineStage: null };
   }
 

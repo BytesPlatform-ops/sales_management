@@ -64,23 +64,74 @@ export async function GET(request: NextRequest) {
         );
       }
     } else {
-      // GOLDEN/BEST/GOOD: Try each state in priority order
-      for (const state of routing.states) {
-        nextLead = await queryOne<any>(
+      // GOLDEN/BEST/GOOD: Try primary state first (the one in optimal window)
+      const primaryState = routing.states[0]; // the golden/best/good state
+
+      // 1. Try assigned leads for primary state
+      nextLead = await queryOne<any>(
+        `SELECT id, firm_name, contact_person, phone_number, raw_data,
+                what_to_offer, talking_points, ai_generated,
+                call_outcome, call_notes, call_count, last_called_at, state
+         FROM dialer_leads
+         WHERE assigned_agent_id = $1
+           AND call_outcome = 'pending'
+           AND pool = 'active'
+           AND state = $2
+         ORDER BY assigned_date DESC NULLS LAST, id ASC
+         LIMIT 1`,
+        [jwt.userId, primaryState]
+      );
+
+      // 2. If no assigned leads for primary state, auto-pull from fresh pool
+      if (!nextLead) {
+        const freshLead = await queryOne<any>(
           `SELECT id, firm_name, contact_person, phone_number, raw_data,
                   what_to_offer, talking_points, ai_generated,
                   call_outcome, call_notes, call_count, last_called_at, state
            FROM dialer_leads
-           WHERE assigned_agent_id = $1
-             AND call_outcome = 'pending'
-             AND state = $2
-           ORDER BY assigned_date DESC NULLS LAST, id ASC
+           WHERE pool = 'fresh'
+             AND assigned_agent_id IS NULL
+             AND state = $1
+           ORDER BY id ASC
            LIMIT 1`,
-          [jwt.userId, state]
+          [primaryState]
         );
-        if (nextLead) break;
+
+        if (freshLead) {
+          // Auto-assign this fresh lead to the agent
+          const today = new Date().toISOString().split('T')[0];
+          await queryOne(
+            `UPDATE dialer_leads
+             SET assigned_agent_id = $1, assigned_date = $2, pool = 'active'
+             WHERE id = $3`,
+            [jwt.userId, today, freshLead.id]
+          );
+          nextLead = freshLead;
+          console.log(`🎯 AUTO-PULL: Fresh ${primaryState} lead #${freshLead.id} → agent ${jwt.userId} (${routing.slotInfo.type} hour)`);
+        }
       }
-      // Fallback: leads without state tag (legacy) or any remaining
+
+      // 3. If primary state exhausted (assigned + fresh), try other states' assigned leads
+      if (!nextLead) {
+        for (const state of routing.states.slice(1)) {
+          nextLead = await queryOne<any>(
+            `SELECT id, firm_name, contact_person, phone_number, raw_data,
+                    what_to_offer, talking_points, ai_generated,
+                    call_outcome, call_notes, call_count, last_called_at, state
+             FROM dialer_leads
+             WHERE assigned_agent_id = $1
+               AND call_outcome = 'pending'
+               AND pool = 'active'
+               AND state = $2
+             ORDER BY assigned_date DESC NULLS LAST, id ASC
+             LIMIT 1`,
+            [jwt.userId, state]
+          );
+          if (nextLead) break;
+        }
+      }
+
+      // 4. Fallback: leads without state tag (legacy) or any remaining
       if (!nextLead) {
         nextLead = await queryOne<any>(
           `SELECT id, firm_name, contact_person, phone_number, raw_data,
