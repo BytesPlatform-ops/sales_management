@@ -84,8 +84,9 @@ pending, interested, not_interested, voicemail, busy, gatekeeper, owner_picked, 
 - **API**: `GET /api/hr/dialer-leads/batches` — batch history + pool stats
 - **API**: `POST /api/hr/dialer-leads/batches/delete` — delete a batch + all its leads
 - Upload history table with per-batch stats + delete button per batch
-- 7 pool stat cards: Total, Fresh, Active, Interested, Recycle, Callback, Dead
+- 7 pool stat cards: compact colored strips (Total, Fresh, Active, Interested, Recycle, Callback, Dead)
 - Page title: "Leads Management" (not "Dialer")
+- **Refined UI**: Upload (2-col) + Distribute (3-col) side by side, Recall + Auto-Dist side by side, uppercase section headers with icon badges, single Save button for auto-dist settings
 
 ### 5. Agent Lead Card (Agent)
 - **Page**: `/agent/dialer-leads` (sidebar label: "My Leads")
@@ -135,12 +136,11 @@ pending, interested, not_interested, voicemail, busy, gatekeeper, owner_picked, 
   - **API**: `PUT /api/agent/pipeline` (update stage, follow_up_at, deal_value, pipeline_notes)
 
 - **HR Pipeline Page** (`/hr/pipeline`, sidebar: "Pipeline"):
-  - 4 summary cards: Total Interested, Pipeline Value, Overdue Follow-ups, Active Agents
-  - 5 clickable stage cards with counts + deal values
-  - Agent dropdown filter + stage filter + clear filters
-  - Full table view: Lead, Agent, Stage, Follow-up, Deal Value, Notes
+  - 4 compact summary stats: Total Interested, Pipeline Value, Overdue Follow-ups, Agents Active
+  - 5 color-coded stage cards with arrow connectors (visual funnel), clickable to filter, overdue badges
+  - Agent quick-filter chips (first name + lead count + value) + dropdown filter + clear filters
+  - Full table view: Lead, Agent, Stage, Follow-up, Deal Value, Notes (uppercase tracking headers)
   - Overdue rows highlighted in red
-  - Agent Pipeline Summary section (clickable to filter by agent)
   - **API**: `GET /api/hr/pipeline` (with ?stage= and ?agent_id= filters)
 
 ### 9. Agent Deactivation → Leads Return
