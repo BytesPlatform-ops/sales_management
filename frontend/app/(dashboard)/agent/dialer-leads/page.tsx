@@ -113,9 +113,7 @@ export default function AgentDialerLeadsPage() {
         setLead(data.data);
         setStats(data.stats);
         setNoMoreLeads(!data.data);
-        if (data.data && !data.data.ai_generated) {
-          enrichWithAI(data.data.id);
-        }
+        // AI points only on manual "Generate AI Points" click — no auto-trigger
       } else {
         console.error('🔴 Next lead API non-success:', data);
       }
