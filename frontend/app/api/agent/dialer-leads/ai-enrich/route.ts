@@ -174,11 +174,12 @@ ${scrapedData.extractedPhones.length > 0 ? `Found Phones: ${scrapedData.extracte
 Could not scrape business website. Using raw CSV data only.
 Reason: ${scrapedData.errorMessage || 'No website/email/business name available'}`;
 
-    const prompt = `You are a sales intelligence analyst for a B2B digital agency that sells websites, SEO, Google Business profiles, social media management, and PPC ads to US businesses.
+    const prompt = `You are a sales intelligence analyst for Bytes Platform — a technology company.
 
-Your job is to analyze this business and generate SPECIFIC, ACTIONABLE talking points focused on TWO key angles:
-1. **How can we help ADVERTISE their business?** (get them more customers, visibility, leads)
-2. **How can we help REDUCE their operational costs?** (automation, efficiency, digital tools)
+=== STEP 0: IDENTIFY BUSINESS TYPE ===
+First, determine if this business is:
+- B2C (sells to consumers — contractors, restaurants, salons, retail, clinics, local services)
+- B2B (sells to other businesses — tech companies, agencies, manufacturers, defense, consulting)
 
 === BUSINESS DATA (from CSV) ===
 Company: ${lead.firm_name || 'Unknown'}
@@ -191,14 +192,34 @@ Raw Data:
 ${businessInfo}
 ${scrapedSection}
 
-=== YOUR TASK ===
-1. Analyze what "${lead.firm_name}" ACTUALLY does — use the scraped website content to understand their real services, products, and target customers
-2. Identify SPECIFIC advertising opportunities for their industry (e.g., "plumbers get 40% of leads from Google Maps" or "contractors need before/after project galleries")
-3. Identify SPECIFIC cost-saving opportunities (e.g., "online booking reduces phone staff needs" or "automated review requests save 5+ hours/week")
-4. Write talking points that a sales agent can READ DIRECTLY on the phone — conversational, specific, compelling
+=== STEP 1: CHOOSE SERVICES BASED ON BUSINESS TYPE ===
+
+IF B2C (local/consumer businesses):
+Focus on: Website, Website Redesign, Local SEO, Google Business, Social Media, PPC Ads, Online Booking, Review Management, E-commerce
+These businesses need MORE CUSTOMERS walking in or calling. Think practically:
+- "Your competitors show up on Google Maps, you don't"
+- "People search 'plumber near me' 10,000 times/month in your area"
+- "Online booking can save you 2 hours/day on phone calls"
+
+IF B2B (business-to-business):
+Focus on: Website, SEO, Content Marketing, CRM, Business Automation, Custom Software, Data Analytics, AI Integration
+These businesses need LEAD GENERATION and OPERATIONAL EFFICIENCY. Think practically:
+- "Your website doesn't clearly show what problems you solve for clients"
+- "A CRM pipeline can track your deals instead of spreadsheets"
+- "Automating your proposal process can save 10 hours/week"
+
+NEVER suggest these (we don't pitch them in cold calls):
+- Cloud Computing
+- Blockchain
+- Cybersecurity
+- ERP (unless manufacturing/logistics with 50+ employees)
+- Mobile App (only if they have a consumer product that genuinely needs one)
+
+=== STEP 2: WRITE TALKING POINTS ===
 
 Respond in this exact JSON format only, no markdown:
 {
+  "businessType": "B2B" or "B2C",
   "what_to_offer": ["service1", "service2"],
   "talking_points": [
     "point1",
@@ -210,13 +231,13 @@ Respond in this exact JSON format only, no markdown:
 }
 
 === STRICT RULES ===
-- what_to_offer: Pick 2-4 services ONLY from: Website, Website Redesign, Local SEO, Google Business, Social Media, PPC Ads, E-commerce, Branding, Content Marketing, Email Marketing, CRM Setup
-- Choose services that make sense for THIS business type based on what you learned from their website
+- what_to_offer: Pick 2-4 services that ACTUALLY make sense — don't force-fit technical services
+- Choose based on business type (B2C = marketing focus, B2B = efficiency + lead gen focus)
 ${!hasWebsite ? '- This business has NO WEBSITE — this is the #1 priority. Lead with "You don\'t have a website, your competitors are getting all the online customers"' : ''}
 ${hasScrapedContent ? '- USE the scraped website content to make points SPECIFIC — mention their actual services, products, or specialties by name' : ''}
 - talking_points: Write exactly 5 points:
-  - Points 1-3: ADVERTISING angle — how to get them more customers/visibility
-  - Points 4-5: COST REDUCTION angle — how digital tools save them time/money
+  - Points 1-3: GROWTH angle — how to get them more customers, visibility, or better digital tools (could be SEO, app, website, AI, software — whatever fits)
+  - Points 4-5: EFFICIENCY angle — how to save time/money (automation, AI chatbots, CRM, custom software, cloud — whatever fits)
   - Each point must be a COMPLETE sentence the agent can say on the phone
   - MENTION "${lead.firm_name}" or their specific business type in at least 2 points
   - Reference their LOCATION for local marketing angles

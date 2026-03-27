@@ -19,6 +19,7 @@ import {
   FileUp,
   PhoneCall,
   Target,
+  FileAudio,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -55,6 +56,12 @@ const navItems: NavItem[] = [
     roles: ['agent'],
   },
   {
+    label: 'Recordings',
+    href: '/agent/recordings',
+    icon: Headphones,
+    roles: ['agent'],
+  },
+  {
     label: 'Dashboard',
     href: '/hr',
     icon: LayoutDashboard,
@@ -88,6 +95,12 @@ const navItems: NavItem[] = [
     label: 'Call Auditing',
     href: '/hr/auditing',
     icon: Headphones,
+    roles: ['hr'],
+  },
+  {
+    label: 'Recordings',
+    href: '/hr/recordings',
+    icon: FileAudio,
     roles: ['hr'],
   },
   {
