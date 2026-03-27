@@ -143,14 +143,23 @@ async function scrapeDirectUrl(website: string): Promise<ScrapedBusinessData> {
   let homepageData: ScrapeResult;
 
   if (isSPA) {
-    console.log(`[SCRAPE] Detected SPA, using Playwright: ${url}`);
-    homepageData = await playwrightScrape(url);
+    console.log(`[SCRAPE] Detected SPA, trying Playwright: ${url}`);
+    try {
+      homepageData = await playwrightScrape(url);
+    } catch {
+      console.log(`[SCRAPE] Playwright unavailable, falling back to Cheerio: ${url}`);
+      homepageData = await cheerioScrape(url);
+    }
   } else {
     try {
       homepageData = await cheerioScrape(url);
     } catch {
       console.log(`[SCRAPE] Cheerio failed, trying Playwright: ${url}`);
-      homepageData = await playwrightScrape(url);
+      try {
+        homepageData = await playwrightScrape(url);
+      } catch {
+        throw new Error('Unable to access website after 2 attempts.');
+      }
     }
   }
 

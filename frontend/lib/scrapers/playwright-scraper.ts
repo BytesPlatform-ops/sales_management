@@ -17,8 +17,12 @@ function cleanText(text: string): string {
 }
 
 let browserInstance: any = null;
+let playwrightUnavailable = false; // Cache: skip all attempts if Chromium not installed
 
 async function getBrowser() {
+  if (playwrightUnavailable) {
+    throw new Error('Playwright browser not available (Chromium not installed)');
+  }
   if (browserInstance) return browserInstance;
   try {
     const { chromium } = await import('playwright');
@@ -38,7 +42,12 @@ async function getBrowser() {
     return browserInstance;
   } catch (error: any) {
     console.error('[PLAYWRIGHT] Failed to launch browser:', error.message);
-    throw new Error('Playwright browser not available. Install with: npx playwright install chromium');
+    // If Chromium executable doesn't exist, cache this so we never retry
+    if (error.message?.includes("Executable doesn't exist") || error.message?.includes('browserType.launch')) {
+      playwrightUnavailable = true;
+      console.log('[PLAYWRIGHT] Chromium not installed — disabling Playwright for this session');
+    }
+    throw new Error('Playwright browser not available (Chromium not installed)');
   }
 }
 
