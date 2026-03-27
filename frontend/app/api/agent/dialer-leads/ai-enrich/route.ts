@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { lead_id } = body;
+    const { lead_id, mode = 'full' } = body; // mode: 'scrape' (website only) or 'full' (scrape + GPT)
 
     if (!lead_id) {
       return NextResponse.json({ status: 'error', message: 'lead_id is required' }, { status: 400 });
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
 
     // Fetch lead
     const lead = await queryOne<any>(
-      `SELECT id, firm_name, contact_person, phone_number, raw_data, ai_generated, assigned_agent_id
+      `SELECT id, firm_name, contact_person, phone_number, raw_data, ai_generated, assigned_agent_id, scraped_data
        FROM dialer_leads WHERE id = $1`,
       [lead_id]
     );
@@ -56,8 +56,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: 'error', message: 'Lead not found' }, { status: 404 });
     }
 
-    // Already enriched? Return cached
-    if (lead.ai_generated) {
+    // Scrape-only mode: if already scraped, return immediately
+    if (mode === 'scrape' && lead.scraped_data) {
+      return NextResponse.json({
+        status: 'success',
+        message: 'Already scraped',
+        data: { already_cached: true, scrape_success: lead.scraped_data.scrapeSuccess },
+      });
+    }
+
+    // Full mode: if already enriched with GPT, return cached
+    if (mode === 'full' && lead.ai_generated) {
       return NextResponse.json({
         status: 'success',
         message: 'Already enriched',
@@ -85,29 +94,51 @@ export async function POST(request: NextRequest) {
     // Clean zip code (remove .0 decimal from CSV number formatting)
     const cleanZip = zipField.trim().replace(/\.0$/, '');
 
-    // ─── Step 1: Scrape business website ───────────────────────────────
-    console.log(`[AI-ENRICH] Scraping business for lead ${lead_id}: ${cleanBusinessName || lead.firm_name}`);
-
+    // ─── Step 1: Scrape business website (use cached if available) ─────
     let scrapedData: ScrapedBusinessData;
-    try {
-      scrapedData = await scrapeBusinessForEnrichment({
-        website: website.trim() || undefined,
-        email: emailField.trim() || undefined,
-        businessName: cleanBusinessName || undefined,
-        state: stateField.trim() || undefined,
-        zipCode: cleanZip || undefined,
+
+    if (lead.scraped_data) {
+      console.log(`[AI-ENRICH] Using cached scraped data for lead ${lead_id}`);
+      scrapedData = lead.scraped_data as ScrapedBusinessData;
+    } else {
+      console.log(`[AI-ENRICH] Scraping business for lead ${lead_id}: ${cleanBusinessName || lead.firm_name}`);
+      try {
+        scrapedData = await scrapeBusinessForEnrichment({
+          website: website.trim() || undefined,
+          email: emailField.trim() || undefined,
+          businessName: cleanBusinessName || undefined,
+          state: stateField.trim() || undefined,
+          zipCode: cleanZip || undefined,
+        });
+      } catch (scrapeError: any) {
+        console.error(`[AI-ENRICH] Scraping failed for lead ${lead_id}:`, scrapeError.message);
+        scrapedData = {
+          method: 'fallback',
+          url: null, searchQuery: null, discoveredUrl: null,
+          homepageText: null, servicesText: null, productsText: null,
+          solutionsText: null, featuresText: null, blogText: null, contactText: null,
+          extractedEmails: [], extractedPhones: [],
+          pageTitle: null, metaDescription: null,
+          scrapeSuccess: false, errorMessage: scrapeError.message,
+        };
+      }
+
+      // Cache scraped data in DB
+      await queryOne(
+        `UPDATE dialer_leads SET scraped_data = $1 WHERE id = $2`,
+        [JSON.stringify(scrapedData), lead_id]
+      );
+    }
+
+    // Scrape-only mode: return after caching
+    if (mode === 'scrape') {
+      return NextResponse.json({
+        status: 'success',
+        data: {
+          scrape_method: scrapedData.method,
+          scrape_success: scrapedData.scrapeSuccess,
+        },
       });
-    } catch (scrapeError: any) {
-      console.error(`[AI-ENRICH] Scraping failed for lead ${lead_id}:`, scrapeError.message);
-      scrapedData = {
-        method: 'fallback',
-        url: null, searchQuery: null, discoveredUrl: null,
-        homepageText: null, servicesText: null, productsText: null,
-        solutionsText: null, featuresText: null, blogText: null, contactText: null,
-        extractedEmails: [], extractedPhones: [],
-        pageTitle: null, metaDescription: null,
-        scrapeSuccess: false, errorMessage: scrapeError.message,
-      };
     }
 
     // ─── Step 2: Build GPT prompt with scraped content ─────────────────

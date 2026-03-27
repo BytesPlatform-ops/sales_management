@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
 
     // 2. Fetch lead
     const lead = await queryOne<any>(
-      `SELECT id, firm_name, contact_person, phone_number, raw_data, what_to_offer, talking_points, ai_generated, email_sent, state
+      `SELECT id, firm_name, contact_person, phone_number, raw_data, what_to_offer, talking_points, ai_generated, email_sent, state, scraped_data
        FROM dialer_leads WHERE id = $1`,
       [lead_id]
     );
@@ -92,27 +92,33 @@ export async function POST(request: NextRequest) {
       .trim();
     const cleanZip = zipField.trim().replace(/\.0$/, '');
 
-    console.log(`[SEND-EMAIL] Scraping for lead ${lead_id}: ${cleanBusinessName || lead.firm_name}`);
     let scrapedData: ScrapedBusinessData;
-    try {
-      scrapedData = await scrapeBusinessForEnrichment({
-        website: website.trim() || undefined,
-        email: recipientEmail || undefined,
-        businessName: cleanBusinessName || undefined,
-        state: stateField.trim() || undefined,
-        zipCode: cleanZip || undefined,
-      });
-    } catch (scrapeError: any) {
-      console.error(`[SEND-EMAIL] Scraping failed:`, scrapeError.message);
-      scrapedData = {
-        method: 'fallback',
-        url: null, searchQuery: null, discoveredUrl: null,
-        homepageText: null, servicesText: null, productsText: null,
-        solutionsText: null, featuresText: null, blogText: null, contactText: null,
-        extractedEmails: [], extractedPhones: [],
-        pageTitle: null, metaDescription: null,
-        scrapeSuccess: false, errorMessage: scrapeError.message,
-      };
+
+    if (lead.scraped_data) {
+      console.log(`[SEND-EMAIL] Using cached scraped data for lead ${lead_id}`);
+      scrapedData = lead.scraped_data as ScrapedBusinessData;
+    } else {
+      console.log(`[SEND-EMAIL] Scraping for lead ${lead_id}: ${cleanBusinessName || lead.firm_name}`);
+      try {
+        scrapedData = await scrapeBusinessForEnrichment({
+          website: website.trim() || undefined,
+          email: recipientEmail || undefined,
+          businessName: cleanBusinessName || undefined,
+          state: stateField.trim() || undefined,
+          zipCode: cleanZip || undefined,
+        });
+      } catch (scrapeError: any) {
+        console.error(`[SEND-EMAIL] Scraping failed:`, scrapeError.message);
+        scrapedData = {
+          method: 'fallback',
+          url: null, searchQuery: null, discoveredUrl: null,
+          homepageText: null, servicesText: null, productsText: null,
+          solutionsText: null, featuresText: null, blogText: null, contactText: null,
+          extractedEmails: [], extractedPhones: [],
+          pageTitle: null, metaDescription: null,
+          scrapeSuccess: false, errorMessage: scrapeError.message,
+        };
+      }
     }
 
     // 7. Build scraped content section for GPT (exact format from email-backend)

@@ -113,7 +113,10 @@ export default function AgentDialerLeadsPage() {
         setLead(data.data);
         setStats(data.stats);
         setNoMoreLeads(!data.data);
-        // AI points only on manual "Generate AI Points" click — no auto-trigger
+        // Auto-scrape website in background (no GPT yet — that's on button click)
+        if (data.data && !data.data.ai_generated) {
+          scrapeInBackground(data.data.id);
+        }
       } else {
         console.error('🔴 Next lead API non-success:', data);
       }
@@ -124,6 +127,19 @@ export default function AgentDialerLeadsPage() {
     }
   }, []);
 
+  const scrapeInBackground = async (leadId: number) => {
+    try {
+      const token = api.getToken();
+      await fetch('/api/agent/dialer-leads/ai-enrich', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lead_id: leadId, mode: 'scrape' }),
+      });
+    } catch (err) {
+      console.error('Background scrape failed:', err);
+    }
+  };
+
   const enrichWithAI = async (leadId: number) => {
     setAiLoading(true);
     try {
@@ -131,7 +147,7 @@ export default function AgentDialerLeadsPage() {
       const res = await fetch('/api/agent/dialer-leads/ai-enrich', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lead_id: leadId }),
+        body: JSON.stringify({ lead_id: leadId, mode: 'full' }),
       });
       const data = await res.json();
       if (data.status === 'success' && data.data && !data.data.already_cached) {
