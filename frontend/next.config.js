@@ -2,7 +2,7 @@
 const nextConfig = {
   // Enable server-side features
   experimental: {
-    serverComponentsExternalPackages: ['pg', 'bcryptjs'],
+    serverComponentsExternalPackages: ['pg', 'bcryptjs', 'undici', 'cheerio', 'axios', 'playwright'],
     instrumentationHook: true,
   },
 };

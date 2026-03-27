@@ -44,6 +44,7 @@ interface DialerLead {
   call_notes: string;
   call_count: number;
   last_called_at: string | null;
+  email_sent: boolean;
 }
 
 interface LeadStats {
@@ -81,6 +82,9 @@ export default function AgentDialerLeadsPage() {
   const [notes, setNotes] = useState('');
   const [copiedPhone, setCopiedPhone] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailJustSent, setEmailJustSent] = useState(false);
+  const [emailError, setEmailError] = useState<string | null>(null);
   const [selectedOutcomes, setSelectedOutcomes] = useState<string[]>([]);
   const [outcomeDropdownOpen, setOutcomeDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -91,6 +95,8 @@ export default function AgentDialerLeadsPage() {
       setLoading(true);
       setNotes('');
       setSelectedOutcomes([]);
+      setEmailJustSent(false);
+      setEmailError(null);
       const token = api.getToken();
       if (!token) { console.log('🔴 No token!'); return; }
 
@@ -139,6 +145,32 @@ export default function AgentDialerLeadsPage() {
       console.error('AI enrichment failed:', err);
     } finally {
       setAiLoading(false);
+    }
+  };
+
+  const sendEmail = async () => {
+    if (!lead || emailSending || lead.email_sent || emailJustSent) return;
+    setEmailSending(true);
+    setEmailError(null);
+    try {
+      const token = api.getToken();
+      const res = await fetch('/api/agent/dialer-leads/send-email', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lead_id: lead.id }),
+      });
+      const data = await res.json();
+      if (data.status === 'success') {
+        setEmailJustSent(true);
+        setLead(prev => prev ? { ...prev, email_sent: true } : prev);
+      } else {
+        setEmailError(data.message || 'Failed to send email');
+      }
+    } catch (err) {
+      setEmailError('Failed to send email');
+      console.error('Send email failed:', err);
+    } finally {
+      setEmailSending(false);
     }
   };
 
@@ -311,6 +343,37 @@ export default function AgentDialerLeadsPage() {
               </span>
             )}
           </div>
+
+          {/* Send Email Button */}
+          {getField(lead, 'e-mail', 'email') && (
+            <div className="px-5 py-2 border-b">
+              {lead.email_sent || emailJustSent ? (
+                <div className="flex items-center gap-1.5 text-xs text-emerald-600 font-semibold">
+                  <Check className="h-3.5 w-3.5" />
+                  Email Sent
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={sendEmail}
+                    disabled={emailSending}
+                    className={cn(
+                      'flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all border',
+                      emailSending
+                        ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed'
+                        : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 active:scale-[0.97]'
+                    )}
+                  >
+                    {emailSending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Mail className="h-3 w-3" />}
+                    {emailSending ? 'Sending...' : 'Send Email'}
+                  </button>
+                  {emailError && (
+                    <span className="text-xs text-red-500">{emailError}</span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Business Description - Compact */}
           {getField(lead, 'capabilities', 'narrative', 'description') && (

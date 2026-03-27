@@ -37,6 +37,10 @@ coverage/
 # TypeScript
 *.tsbuildinfo
 
+# Reference folders (not deployed)
+email-backend-second-prompt/
+owner_direct/
+
 # Misc
 *.log
 *.pid

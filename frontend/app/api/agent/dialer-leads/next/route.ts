@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
       nextLead = await queryOne<any>(
         `SELECT id, firm_name, contact_person, phone_number, raw_data,
                 what_to_offer, talking_points, ai_generated,
-                call_outcome, call_notes, call_count, last_called_at, state
+                call_outcome, call_notes, call_count, last_called_at, state, email_sent
          FROM dialer_leads
          WHERE assigned_agent_id = $1
            AND call_outcome = 'pending'
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
         nextLead = await queryOne<any>(
           `SELECT id, firm_name, contact_person, phone_number, raw_data,
                   what_to_offer, talking_points, ai_generated,
-                  call_outcome, call_notes, call_count, last_called_at, state
+                  call_outcome, call_notes, call_count, last_called_at, state, email_sent
            FROM dialer_leads
            WHERE assigned_agent_id = $1
              AND call_outcome = 'pending'
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
       nextLead = await queryOne<any>(
         `SELECT id, firm_name, contact_person, phone_number, raw_data,
                 what_to_offer, talking_points, ai_generated,
-                call_outcome, call_notes, call_count, last_called_at, state
+                call_outcome, call_notes, call_count, last_called_at, state, email_sent
          FROM dialer_leads
          WHERE assigned_agent_id = $1
            AND call_outcome = 'pending'
@@ -100,7 +100,7 @@ export async function GET(request: NextRequest) {
            )
            RETURNING id, firm_name, contact_person, phone_number, raw_data,
                      what_to_offer, talking_points, ai_generated,
-                     call_outcome, call_notes, call_count, last_called_at, state`,
+                     call_outcome, call_notes, call_count, last_called_at, state, email_sent`,
           [jwt.userId, today, primaryState]
         );
 
@@ -116,7 +116,7 @@ export async function GET(request: NextRequest) {
           nextLead = await queryOne<any>(
             `SELECT id, firm_name, contact_person, phone_number, raw_data,
                     what_to_offer, talking_points, ai_generated,
-                    call_outcome, call_notes, call_count, last_called_at, state
+                    call_outcome, call_notes, call_count, last_called_at, state, email_sent
              FROM dialer_leads
              WHERE assigned_agent_id = $1
                AND call_outcome = 'pending'
@@ -135,7 +135,7 @@ export async function GET(request: NextRequest) {
         nextLead = await queryOne<any>(
           `SELECT id, firm_name, contact_person, phone_number, raw_data,
                   what_to_offer, talking_points, ai_generated,
-                  call_outcome, call_notes, call_count, last_called_at, state
+                  call_outcome, call_notes, call_count, last_called_at, state, email_sent
            FROM dialer_leads
            WHERE assigned_agent_id = $1
              AND call_outcome = 'pending'

@@ -165,10 +165,21 @@ function parseCSV(csvText: string): Array<{
   if (headerIdx === -1) return [];
 
   // Find which columns map to our core fields
-  const phoneCol = findColumn(headers, ['phone number', 'phone', 'tel', 'telephone', 'mobile']);
-  const firmCol = findColumn(headers, ['name of firm', 'firm', 'company', 'business name', 'company name', 'business_name']);
-  const contactCol = findColumn(headers, ['contact', 'contact person', 'contact name', 'owner name', 'owner_name', 'full name', 'full_name', 'name']);
+  // Columns to exclude from matching (gov officer data in SBIR CSVs)
+  const govColumns = new Set<number>();
+  headers.forEach((h, idx) => {
+    const lower = h.toLowerCase();
+    if (lower.includes('gov officer') || lower.includes('gov_officer')) {
+      govColumns.add(idx);
+    }
+  });
+
+  const phoneCol = findColumnExcluding(headers, ['phone number', 'phone', 'tel', 'telephone', 'mobile'], govColumns);
+  const firmCol = findColumn(headers, ['name of firm', 'firm', 'company', 'business name', 'company name', 'business_name', 'contractor company name']);
+  const contactCol = findColumnExcluding(headers, ['contact name', 'contact person', 'contact', 'owner name', 'owner_name', 'full name', 'full_name', 'contractor full name', 'name'], govColumns);
   const addressCol = findColumn(headers, ['address', 'address and city']);
+  // Fallback: descriptive column for firm_name when no business name exists
+  const typeCol = findColumn(headers, ['license_type', 'license type', 'contractor trade', 'trade', 'business_type', 'business type', 'permit type desc']);
 
   // Only the # column should be skipped
   const skipCol = findColumn(headers, ['#']);
@@ -212,9 +223,20 @@ function parseCSV(csvText: string): Array<{
         }
       }
 
+      const contact = contactCol !== -1 ? row[contactCol]?.trim() || '' : '';
+      const typeDesc = typeCol !== -1 ? row[typeCol]?.trim() || '' : '';
+
+      // If no firm/business name, build one from contact + license/trade type
+      let finalFirm = firm;
+      if (!finalFirm && contact && typeDesc) {
+        finalFirm = `${contact} - ${typeDesc}`;
+      } else if (!finalFirm && typeDesc) {
+        finalFirm = typeDesc;
+      }
+
       currentLead = {
-        firm_name: firm,
-        contact_person: contactCol !== -1 ? row[contactCol]?.trim() || '' : '',
+        firm_name: finalFirm,
+        contact_person: contact,
         phone_number: phone,
         raw_data: rawData,
       };
@@ -248,6 +270,16 @@ function findColumn(headers: string[], keywords: string[]): number {
   for (const keyword of keywords) {
     const idx = headers.findIndex(h =>
       h.toLowerCase().includes(keyword.toLowerCase())
+    );
+    if (idx !== -1) return idx;
+  }
+  return -1;
+}
+
+function findColumnExcluding(headers: string[], keywords: string[], excludeColumns: Set<number>): number {
+  for (const keyword of keywords) {
+    const idx = headers.findIndex((h, i) =>
+      !excludeColumns.has(i) && h.toLowerCase().includes(keyword.toLowerCase())
     );
     if (idx !== -1) return idx;
   }

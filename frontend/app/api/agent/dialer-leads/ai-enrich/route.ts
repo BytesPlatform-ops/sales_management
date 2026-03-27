@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { queryOne } from '@/lib/db';
+import { scrapeBusinessForEnrichment, ScrapedBusinessData } from '@/lib/scrapers/scraping-service';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
@@ -16,7 +17,8 @@ interface JwtPayload {
 
 /**
  * POST /api/agent/dialer-leads/ai-enrich
- * Generate "What to Offer" and "Talking Points" for a lead using GPT.
+ * Scrapes business website → feeds scraped content to GPT → generates talking points
+ * focused on: (1) How to advertise the business, (2) How to reduce operational cost
  */
 export async function POST(request: NextRequest) {
   try {
@@ -65,34 +67,104 @@ export async function POST(request: NextRequest) {
 
     const rawData = typeof lead.raw_data === 'string' ? JSON.parse(lead.raw_data) : lead.raw_data;
 
-    // Build context for GPT — extract key fields for better analysis
+    // Extract key fields from raw_data
+    const website = String(Object.entries(rawData).find(([k]) => /www|url|website/i.test(k))?.[1] || '');
+    const emailField = String(Object.entries(rawData).find(([k]) => /e-?mail/i.test(k))?.[1] || '');
+    const capabilities = String(Object.entries(rawData).find(([k]) => /capabilities|narrative|description|business/i.test(k))?.[1] || '');
+    const address = String(Object.entries(rawData).find(([k]) => /address|city|location/i.test(k))?.[1] || '');
+    const stateField = String(Object.entries(rawData).find(([k]) => /^state$/i.test(k))?.[1] || '');
+    const zipField = String(Object.entries(rawData).find(([k]) => /zip|postal/i.test(k))?.[1] || '');
+
+    // Clean business name for search (remove *MAIN*, *BRANCH*, special chars)
+    const cleanBusinessName = (lead.firm_name || '')
+      .replace(/\*[^*]*\*/g, '')  // remove *MAIN*, *BRANCH*, etc.
+      .replace(/[^\w\s&.,'-]/g, '') // remove special chars except common business chars
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    // Clean zip code (remove .0 decimal from CSV number formatting)
+    const cleanZip = zipField.trim().replace(/\.0$/, '');
+
+    // ─── Step 1: Scrape business website ───────────────────────────────
+    console.log(`[AI-ENRICH] Scraping business for lead ${lead_id}: ${cleanBusinessName || lead.firm_name}`);
+
+    let scrapedData: ScrapedBusinessData;
+    try {
+      scrapedData = await scrapeBusinessForEnrichment({
+        website: website.trim() || undefined,
+        email: emailField.trim() || undefined,
+        businessName: cleanBusinessName || undefined,
+        state: stateField.trim() || undefined,
+        zipCode: cleanZip || undefined,
+      });
+    } catch (scrapeError: any) {
+      console.error(`[AI-ENRICH] Scraping failed for lead ${lead_id}:`, scrapeError.message);
+      scrapedData = {
+        method: 'fallback',
+        url: null, searchQuery: null, discoveredUrl: null,
+        homepageText: null, servicesText: null, productsText: null,
+        solutionsText: null, featuresText: null, blogText: null, contactText: null,
+        extractedEmails: [], extractedPhones: [],
+        pageTitle: null, metaDescription: null,
+        scrapeSuccess: false, errorMessage: scrapeError.message,
+      };
+    }
+
+    // ─── Step 2: Build GPT prompt with scraped content ─────────────────
     const businessInfo = Object.entries(rawData)
       .map(([key, value]) => `${key}: ${value}`)
       .join('\n');
 
-    // Extract specific fields for emphasis
-    const website = String(Object.entries(rawData).find(([k]) => /www|url|website/i.test(k))?.[1] || '');
-    const capabilities = String(Object.entries(rawData).find(([k]) => /capabilities|narrative|description|business/i.test(k))?.[1] || '');
-    const address = String(Object.entries(rawData).find(([k]) => /address|city|location/i.test(k))?.[1] || '');
-    const email = String(Object.entries(rawData).find(([k]) => /e-?mail/i.test(k))?.[1] || '');
-    const hasWebsite = website.trim().length > 0;
+    const hasWebsite = !!(website.trim() || scrapedData.url);
+    const hasScrapedContent = scrapedData.scrapeSuccess && scrapedData.homepageText;
 
-    const prompt = `You are a sales research analyst for a B2B digital agency. Your job is to deeply analyze each business and generate UNIQUE, SPECIFIC sales intelligence. Do NOT give generic advice.
+    // Truncate scraped content to fit token limits
+    const truncate = (text: string | null, maxLen: number) =>
+      text ? text.substring(0, maxLen) : '';
 
-=== BUSINESS DATA ===
+    const scrapedSection = hasScrapedContent
+      ? `
+=== SCRAPED WEBSITE CONTENT ===
+Source: ${scrapedData.url || scrapedData.discoveredUrl || 'Unknown'}
+Method: ${scrapedData.method}
+Page Title: ${scrapedData.pageTitle || 'N/A'}
+Meta Description: ${scrapedData.metaDescription || 'N/A'}
+
+Homepage Content:
+${truncate(scrapedData.homepageText, 2000)}
+
+${scrapedData.servicesText ? `Services Page:\n${truncate(scrapedData.servicesText, 1000)}\n` : ''}
+${scrapedData.productsText ? `Products Page:\n${truncate(scrapedData.productsText, 1000)}\n` : ''}
+${scrapedData.contactText ? `Contact Page:\n${truncate(scrapedData.contactText, 500)}\n` : ''}
+${scrapedData.extractedEmails.length > 0 ? `Found Emails: ${scrapedData.extractedEmails.join(', ')}\n` : ''}
+${scrapedData.extractedPhones.length > 0 ? `Found Phones: ${scrapedData.extractedPhones.join(', ')}\n` : ''}`
+      : `
+=== NO WEBSITE CONTENT AVAILABLE ===
+Could not scrape business website. Using raw CSV data only.
+Reason: ${scrapedData.errorMessage || 'No website/email/business name available'}`;
+
+    const prompt = `You are a sales intelligence analyst for a B2B digital agency that sells websites, SEO, Google Business profiles, social media management, and PPC ads to US businesses.
+
+Your job is to analyze this business and generate SPECIFIC, ACTIONABLE talking points focused on TWO key angles:
+1. **How can we help ADVERTISE their business?** (get them more customers, visibility, leads)
+2. **How can we help REDUCE their operational costs?** (automation, efficiency, digital tools)
+
+=== BUSINESS DATA (from CSV) ===
 Company: ${lead.firm_name || 'Unknown'}
 Contact: ${lead.contact_person || 'Unknown'}
-Website: ${hasWebsite ? website : 'NO WEBSITE FOUND'}
-Industry/Capabilities: ${capabilities || 'Not provided'}
+Website: ${hasWebsite ? (website || scrapedData.url) : 'NO WEBSITE'}
+Industry/Type: ${capabilities || 'Not provided'}
 Location: ${address || 'Not provided'}
-Email: ${email || 'Not provided'}
-All Data:
+Email: ${emailField || 'Not provided'}
+Raw Data:
 ${businessInfo}
+${scrapedSection}
 
 === YOUR TASK ===
-1. Analyze what this SPECIFIC business does (e.g., "${lead.firm_name}" — what is their industry? what do they sell/provide?)
-2. Based on THEIR industry and services, determine what digital services would actually help THEM
-3. Write talking points that reference THEIR specific business, industry terms, and pain points
+1. Analyze what "${lead.firm_name}" ACTUALLY does — use the scraped website content to understand their real services, products, and target customers
+2. Identify SPECIFIC advertising opportunities for their industry (e.g., "plumbers get 40% of leads from Google Maps" or "contractors need before/after project galleries")
+3. Identify SPECIFIC cost-saving opportunities (e.g., "online booking reduces phone staff needs" or "automated review requests save 5+ hours/week")
+4. Write talking points that a sales agent can READ DIRECTLY on the phone — conversational, specific, compelling
 
 Respond in this exact JSON format only, no markdown:
 {
@@ -101,23 +173,28 @@ Respond in this exact JSON format only, no markdown:
     "point1",
     "point2",
     "point3",
-    "point4"
+    "point4",
+    "point5"
   ]
 }
 
 === STRICT RULES ===
 - what_to_offer: Pick 2-4 services ONLY from: Website, Website Redesign, Local SEO, Google Business, Social Media, PPC Ads, E-commerce, Branding, Content Marketing, Email Marketing, CRM Setup
-- IMPORTANT: Choose services that make sense for THIS business type. A metal supplier needs different things than a restaurant.
-${!hasWebsite ? '- This business has NO WEBSITE — this is the #1 priority. Lead with that.' : '- They have a website — suggest improvements, SEO, or complementary services.'}
-- talking_points: Write 3-5 points that are SPECIFIC to "${lead.firm_name}".
-  - MENTION their actual business type/industry (e.g., "${capabilities ? capabilities.substring(0, 50) : 'their services'}")
-  - MENTION their location if available for local SEO angles
-  - Reference specific pain points for THEIR industry, not generic digital marketing advice
-  - Each point must be different — don't repeat the same idea in different words
-- Keep each talking point under 120 characters
-- Do NOT use generic phrases like "enhance your online presence" or "attract more clients" — be SPECIFIC about WHY and HOW`;
+- Choose services that make sense for THIS business type based on what you learned from their website
+${!hasWebsite ? '- This business has NO WEBSITE — this is the #1 priority. Lead with "You don\'t have a website, your competitors are getting all the online customers"' : ''}
+${hasScrapedContent ? '- USE the scraped website content to make points SPECIFIC — mention their actual services, products, or specialties by name' : ''}
+- talking_points: Write exactly 5 points:
+  - Points 1-3: ADVERTISING angle — how to get them more customers/visibility
+  - Points 4-5: COST REDUCTION angle — how digital tools save them time/money
+  - Each point must be a COMPLETE sentence the agent can say on the phone
+  - MENTION "${lead.firm_name}" or their specific business type in at least 2 points
+  - Reference their LOCATION for local marketing angles
+  - Each point must be DIFFERENT — don't repeat the same idea
+- Keep each talking point under 150 characters
+- Write in a conversational tone — these are spoken on the phone, not read in an email
+- Do NOT use generic phrases like "enhance your online presence" — be SPECIFIC about the business`;
 
-    // Call OpenAI
+    // ─── Step 3: Call OpenAI ───────────────────────────────────────────
     const gptResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -128,7 +205,7 @@ ${!hasWebsite ? '- This business has NO WEBSITE — this is the #1 priority. Lea
         model: 'gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.7,
-        max_tokens: 500,
+        max_tokens: 700,
       }),
     });
 
@@ -154,7 +231,6 @@ ${!hasWebsite ? '- This business has NO WEBSITE — this is the #1 priority. Lea
     // Parse GPT response
     let parsed: { what_to_offer: string[]; talking_points: string[] };
     try {
-      // Handle potential markdown code blocks
       const cleanContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
       parsed = JSON.parse(cleanContent);
     } catch (parseErr) {
@@ -165,7 +241,7 @@ ${!hasWebsite ? '- This business has NO WEBSITE — this is the #1 priority. Lea
       );
     }
 
-    // Save to database
+    // ─── Step 4: Save to database ─────────────────────────────────────
     await queryOne(
       `UPDATE dialer_leads
        SET what_to_offer = $1,
@@ -181,6 +257,8 @@ ${!hasWebsite ? '- This business has NO WEBSITE — this is the #1 priority. Lea
       data: {
         what_to_offer: parsed.what_to_offer,
         talking_points: parsed.talking_points,
+        scrape_method: scrapedData.method,
+        scrape_success: scrapedData.scrapeSuccess,
       },
     });
   } catch (error) {

@@ -16,7 +16,7 @@ A sales team management platform built with **Next.js 14 (frontend + API routes)
 
 ## Database (PRODUCTION - DO NOT DROP/ALTER DESTRUCTIVELY)
 ### Existing Tables (DO NOT TOUCH)
-- `users` — agents + HR (role: 'hr' | 'agent'), has extension_number, base_salary, shift times
+- `users` — agents + HR (role: 'hr' | 'agent'), has extension_number, base_salary, shift times, email_name (display name for outbound emails), email_address (agent's FROM email e.g. mike@bytesplatform.com)
 - `leads` — old leads system (still in use by old Power Dialer)
 - `attendance`, `daily_stats`, `sales` — existing system tables
 
@@ -56,7 +56,9 @@ pending, interested, not_interested, voicemail, busy, gatekeeper, owner_picked, 
 - **CSV Format**: Row 1 = data (firm, contact, capabilities, email, phone, website), Row 2 = address. Columns A-H only.
 - Flexible parser: auto-detects headers, handles any CSV column layout via JSONB
 - **Column keywords**: firm → (firm, company, business name, business_name), contact → (contact, owner name, owner_name, full name, full_name, name), phone → (phone, tel, mobile)
+- **Gov Officer column exclusion**: SBIR CSVs have `Gov Officer Phone/Name/Email` columns — parser now auto-detects columns with "gov officer" in header and excludes them from phone/contact matching. Prevents gov officer numbers being stored instead of actual business contact.
 - Upload only requires file + state selection (leads_per_agent removed from upload, handled by distribution only)
+- **Smart firm_name fallback**: If CSV has no business name column, parser combines `contact_person + license_type/trade` (e.g., "JAMES CLARK - Certified General Contractor"). Detects columns via keywords: license_type, license type, contractor trade, trade, business_type, permit type desc
 
 ### 2. Smart Lead Distribution (HR + Auto)
 - **API**: `POST /api/hr/dialer-leads/distribute` — manual distribution by HR
@@ -98,15 +100,35 @@ pending, interested, not_interested, voicemail, busy, gatekeeper, owner_picked, 
 - Notes field per call
 - Sidebar: removed old "Import Leads" and "Power Dialer" links from agent nav
 
-### 6. AI Lead Enrichment (GPT)
+### 6. AI Lead Enrichment (Scraping + GPT) — COMPLETED
 - **API**: `POST /api/agent/dialer-leads/ai-enrich`
 - Auto-triggers when agent opens a lead (if not already enriched)
-- GPT-4o-mini generates: "What to Offer" (service tags) + "Talking Points" (3-5 specific bullets)
-- **Deep analysis prompt**: extracts website, capabilities, address, email — forces GPT to analyze the specific business type/industry, not give generic advice
-- Explicitly bans generic phrases, requires industry-specific talking points
+- **Flow**: Scrape website → feed scraped content to GPT → generate specific talking points
+- **Website Scraping Pipeline** (ported from email-backend-second-prompt NestJS → plain TS functions):
+  1. **Strategy 1 - Direct URL**: If website found in raw_data → scrape it (Cheerio first, Playwright for SPAs)
+  2. **Strategy 2 - Email Domain**: If email found → extract domain (skip free emails like gmail/yahoo) → Google Custom Search `site:domain.com` → scrape
+  3. **Strategy 3 - Business Name Search**: Google Custom Search with `"business name" + state + zip` → scrape discovered URL
+  4. **Strategy 4 - Fallback**: If all scraping fails → GPT generates from raw CSV data only
+- **Multi-page scraping**: Scrapes homepage + discovers nav links → scrapes services, products, contact, solutions, features, blog pages
+- **Hash section extraction**: Single-page sites with `#hash` navigation → extracts section content directly from homepage HTML
+- **SPA detection**: Checks for React/Vue/Angular/Next.js → uses Playwright (full browser) instead of Cheerio (HTTP-only)
+- **Contact enrichment**: Extracts emails/phones from footer + contact page if not found on homepage
+- **Proxy support**: 10 Webshare proxies with round-robin rotation, failure tracking, auto-reset (env: `WEBSHARE_PROXIES`)
+- **Cloudflare bypass**: Playwright with stealth settings (webdriver false, fake chrome runtime, plugins), mouse simulation, 30s challenge wait
+- **GPT prompt** (CEO directive): Scraped website content fed to GPT with two focus areas:
+  1. **"How we can advertise your business"** (points 1-3) — website, SEO, Google Business, social media angles specific to their industry
+  2. **"How we can reduce your operational cost"** (points 4-5) — digital tools that save time/money for their specific business type
+- GPT-4o-mini generates: "What to Offer" (2-4 service tags) + "Talking Points" (5 specific bullets — conversational, phone-ready)
+- Response includes `scrape_method` and `scrape_success` for debugging which strategy was used
 - Results cached in DB (only calls GPT once per lead)
 - Manual "Generate AI Points" button as fallback
-- `.env` key: `OPENAI_API_KEY`
+- `.env` keys: `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `GOOGLE_SEARCH_ENGINE_ID`, `WEBSHARE_PROXIES`
+- **Scraper files** (all in `frontend/lib/scrapers/`):
+  - `proxy-manager.ts` — Webshare proxy rotation (singleton, round-robin, failure tracking)
+  - `cheerio-scraper.ts` — Fast HTTP scraper for static sites (axios + cheerio)
+  - `playwright-scraper.ts` — Full browser scraper for SPAs (Chromium, stealth mode, Cloudflare bypass)
+  - `google-search.ts` — Google Custom Search API (business name + domain search, 5 query variations)
+  - `scraping-service.ts` — Orchestrator (3-strategy pipeline, multi-page discovery, contact enrichment, hash sections)
 
 ### 7. Lead Pool System
 - **Pools**: fresh → active → [interested | recycle | callback | dead]
@@ -177,6 +199,34 @@ pending, interested, not_interested, voicemail, busy, gatekeeper, owner_picked, 
 - Shows breakdown per agent: how many recalled vs kept
 - **Use case**: CEO tells HR "reduce to 100 per agent" → HR sets keep_count=100, clicks recall → done
 
+### 12. Send Email During Call (Agent)
+- **Purpose**: Agent clicks "Send Email" while on the phone → personalized email sent to client instantly via SendGrid
+- **API**: `POST /api/agent/dialer-leads/send-email` — body: `{ lead_id: number }`
+- **Flow**:
+  1. Extracts recipient email from lead's `raw_data` (auto-detects "email"/"e-mail" columns)
+  2. Scrapes business website (same pipeline as AI enrichment — direct URL / email domain / Google search)
+  3. Generates personalized email via GPT-4o-mini using **FULL gold standard prompt** (exact copy from email-backend-second-prompt NestJS, adapted for on-call context)
+  4. Converts to HTML with Bytes Platform signature (logo, phone numbers, website)
+  5. Sends via SendGrid REST API with open/click tracking enabled — **FROM agent's own email** (e.g., mike@bytesplatform.com)
+  6. Logs in `dialer_email_logs` table + marks lead `email_sent = true`
+- **Email prompt** (FULL port from email-backend, includes all steps GPT must follow):
+  - STEP 0: Competitor Detection (10-item checklist — is target a dev/tech/marketing company?)
+  - STEP 1: Q1-Q4 Analysis (what do they do, specific interesting thing, real-world urgency, growth+efficiency fit)
+  - STEP 2: Write Email — 4 paragraphs with per-paragraph BANNED words and strict rules
+  - P1: "It was great speaking with you just now. I'm [Agent] from Bytes Platform..." + genuine business compliment (4 opener variations)
+  - P2: Real-world market tension (BANNED: "many companies face", "competitive landscape", "businesses struggle", etc.)
+  - P3: Growth (SEO/marketing) + Efficiency (automation/CRM) — one flowing paragraph, less is more
+  - P4: "As I mentioned on the call..." + Calendly booking link via `{{BOOKING_LINK}}` placeholder
+  - BYTES PLATFORM SERVICES list included (22 services from Web Dev to Blockchain)
+  - Subject lines: MUST include business name or contact's first name (not generic marketing headlines)
+  - Icebreaker: 25-35 words, sounds like a real sales call opener
+- **Per-agent FROM email**: Each agent sends from their own `email_address` (e.g., mike@bytesplatform.com, matt@bytesplatform.com). Falls back to `info@bytesplatform.com` if not set.
+- **Competitor detection**: If business is a dev/tech company → only pitch SEO/marketing, never imply missing capability
+- **Signature**: Bytes Platform branding with logo, bytesplatform.com, info@bytesplatform.com, phone numbers (833-323-0371, 945-723-0190)
+- **Frontend**: "Send Email" button on agent lead card — only shows if lead has email, shows loading spinner, turns to "Email Sent" checkmark after success
+- **Tracking**: `dialer_email_logs` table (lead_id, agent_id, recipient_email, subject, body_html, sendgrid_message_id, status, created_at)
+- `.env` keys: `SENDGRID_API_KEY`, `SENDER_EMAIL` (fallback: info@bytesplatform.com)
+
 ## File Structure (Key Files)
 
 ### API Routes (frontend/app/api/)
@@ -192,6 +242,7 @@ hr/agents/[id]/route.ts               — Agent CRUD + deactivation returns lead
 agent/dialer-leads/next/route.ts       — Get next pending lead (timezone-routed by state)
 agent/dialer-leads/outcome/route.ts    — Log outcome(s), move to correct pool
 agent/dialer-leads/ai-enrich/route.ts  — GPT enrichment (deep analysis prompt)
+agent/dialer-leads/send-email/route.ts — Send personalized email during call (GPT + SendGrid)
 agent/pipeline/route.ts                — Agent: GET pipeline leads, PUT update lead
 cron/auto-distribute/route.ts          — External cron endpoint (legacy, kept as backup)
 ```
@@ -213,9 +264,15 @@ frontend/lib/timezone-router.ts        — DST-aware timezone routing engine (st
 frontend/instrumentation.ts            — Server boot scheduler (checks every 60s for auto-distribute)
 frontend/next.config.js                — instrumentationHook: true enabled
 frontend/components/layout/sidebar.tsx  — Navigation (role-based, Pipeline added for both roles)
-frontend/.env                          — DB creds, JWT secret, OpenAI key, 3CX config
+frontend/.env                          — DB creds, JWT secret, OpenAI key, SendGrid key, 3CX config
 database/migrations/create_dialer_leads.sql — Full schema + distribution_settings table
 database/migrations/create_call_logs.sql   — dialer_call_logs table (call history per lead)
+database/migrations/add_email_sending.sql  — email_sent on dialer_leads + dialer_email_logs table
+frontend/lib/scrapers/proxy-manager.ts     — Webshare proxy rotation (singleton)
+frontend/lib/scrapers/cheerio-scraper.ts   — Fast HTTP scraper (static sites)
+frontend/lib/scrapers/playwright-scraper.ts — Browser scraper (SPAs, Cloudflare bypass)
+frontend/lib/scrapers/google-search.ts     — Google Custom Search API wrapper
+frontend/lib/scrapers/scraping-service.ts  — Scraping orchestrator (3-strategy pipeline)
 ```
 
 ## Timezone-Based Lead Routing (Smart Routing Engine)
@@ -331,3 +388,22 @@ database/migrations/create_call_logs.sql   — dialer_call_logs table (call hist
 - Auto-pull uses `FOR UPDATE SKIP LOCKED` to prevent race conditions between agents
 - `dialer_call_logs` preserves full call history — `call_logs` table is for 3CX recordings (DO NOT TOUCH)
 - Existing `call_logs` table (3CX) has 11k+ records — completely separate from dialer system
+- AI enrichment scraping pipeline: website → email domain → Google search → fallback GPT-only. Ported from email-backend (NestJS/Prisma) to plain TS functions
+- Scraping needs `cheerio`, `axios`, `playwright` npm packages + `npx playwright install chromium`
+- Google Search API needs `GOOGLE_API_KEY` + `GOOGLE_SEARCH_ENGINE_ID` in .env
+- Proxy rotation optional (`WEBSHARE_PROXIES` env) — works without proxies using direct connection
+- TDLR data: filtered version (`tdlr_contractors_only.csv`) removes 50K salons/spas, keeps 18K contractors/specialists for better pickup ratio
+- CSV data sources ranked by pickup ratio: CA Sole Owners (35-45%) > FL Contractors (30-40%) > SBIR TX/FL/CA (30-40%) > Austin Permits (30-35%) > TDLR filtered (25-35%) > FL Lodging (skip)
+- Upload CSV parser auto-detects: `contractor company name`, `contractor full name`, `contractor trade` columns (Austin permits format)
+- SBIR CSV phone bug (fixed 2026-03-27): Gov Officer Phone was being picked instead of actual business Phone. Parser now excludes "gov officer" columns. 1,816 existing SBIR leads fixed via direct DB update + 250 wrongly-called leads reset to pending/fresh.
+- `next.config.js`: `serverComponentsExternalPackages` includes `undici`, `cheerio`, `axios`, `playwright` — prevents webpack parsing errors with private class fields
+- Send Email feature uses SendGrid REST API directly (no `@sendgrid/mail` npm package) — `SENDGRID_API_KEY` env var required
+- Email generation prompt is EXACT copy from email-backend-second-prompt (NestJS) gold standard — includes all steps (Q1-Q4, competitor detection, per-paragraph rules, banned words, opener variations). Only adapted: "I came across today" → "It was great speaking with you just now" for on-call context. max_tokens: 2000.
+- `dialer_email_logs` table tracks sent emails (lead_id, agent_id, recipient, subject, body, sendgrid message ID)
+- `email_sent` boolean on `dialer_leads` prevents double-sending to same lead
+- `email_name` column on `users` table — display name for emails (e.g., abbas→Mike, murtaza→Matt, AHMED→Ahmed, hasan→Daniel Smith, sameer→Sameer). Falls back to `username` if null.
+- `email_address` column on `users` table — agent's FROM email (mike@bytesplatform.com, matt@bytesplatform.com, daniel@bytesplatform.com, ahmed@bytesplatform.com, sameer@bytesplatform.com). Falls back to `SENDER_EMAIL` env if null.
+- Email prompt is FULL copy from email-backend-second-prompt — includes Q1-Q4 analysis, per-paragraph banned words, 4 opener variations, competitor detection (10 items), BYTES PLATFORM SERVICES list. Only change: "I came across today" → "It was great speaking with you just now" for on-call context.
+- Subject line rules: MUST include business name or contact first name. Good: "A thought on growing [Business]". Bad: "Rising demand for secure website solutions".
+- Business name cleaned before Google search: removes `*MAIN*`, `*BRANCH*` tags and special chars (CSV artifacts)
+- Zip codes cleaned before search: removes `.0` decimal suffix from CSV number formatting (e.g., `78759.0` → `78759`)
