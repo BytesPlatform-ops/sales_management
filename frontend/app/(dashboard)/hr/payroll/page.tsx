@@ -322,6 +322,9 @@ export default function PayrollDashboard() {
                   Talk Time
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  Weekend
+                </th>
+                <th className="px-6 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
                   Final Payout
                 </th>
               </tr>
@@ -377,6 +380,11 @@ export default function PayrollDashboard() {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <span className="text-gray-900">{formatDuration(agent.totalTalkTime)}</span>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <span className="text-sm font-medium text-indigo-600">
+                        {formatCurrency(agent.weekendEarnings || 0)}
+                      </span>
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">

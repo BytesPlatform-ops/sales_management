@@ -67,6 +67,7 @@ interface AgentPayroll {
   avgPerformanceScore: number;
   performanceBonus: number;
   deductions: number;
+  weekendEarnings: number;
   finalPayout: number;
   dailyBreakdown: {
     date: string;
@@ -316,10 +317,11 @@ export async function GET(request: NextRequest) {
       }
       
       // Calculate final values
+      const weekendEarnings = weekendDaysCount * dailyPotential;
       const avgPerformanceScore = daysWorked > 0 ? totalPerformanceScore / daysWorked : 0;
       const deductions = fullPotentialEarnings - performanceEarnings;
       const performanceBonus = performanceEarnings - (daysWorked * dailyPotential * 0.5); // Bonus above 50% base
-      
+
       agentPayrolls.push({
         id: agent.id,
         name: agent.full_name,
@@ -337,6 +339,7 @@ export async function GET(request: NextRequest) {
         avgPerformanceScore: Math.round(avgPerformanceScore * 100),
         performanceBonus: Math.max(0, performanceBonus),
         deductions: Math.max(0, deductions),
+        weekendEarnings: Math.round(weekendEarnings),
         finalPayout: performanceEarnings,
         dailyBreakdown,
       });
@@ -396,6 +399,7 @@ export async function GET(request: NextRequest) {
           finalPayout: Math.round(a.finalPayout),
           deductions: Math.round(a.deductions),
           performanceBonus: Math.round(a.performanceBonus),
+          weekendEarnings: a.weekendEarnings,
         })),
         payoutTrend,
       },
