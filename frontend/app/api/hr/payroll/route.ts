@@ -203,7 +203,7 @@ export async function GET(request: NextRequest) {
     });
 
     for (const agent of agents) {
-      const dailyPotential = agent.base_salary / workingDays;
+      const dailyPotential = agent.base_salary / 30;
       const agentDailyStats = dailyStatsMap.get(`${agent.id}`) || [];
       const agentCallLogs = callLogsMap.get(agent.extension_number) || [];
       const agentAttendance = attendanceMap.get(`${agent.id}`) || [];
@@ -254,18 +254,24 @@ export async function GET(request: NextRequest) {
       const dailyBreakdown: AgentPayroll['dailyBreakdown'] = [];
       
       // Process each day in the month
+      let weekendDaysCount = 0;
       const daysInMonth = new Date(year, month, 0).getDate();
       for (let day = 1; day <= daysInMonth; day++) {
         const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
         const dayOfWeek = new Date(year, month - 1, day).getDay();
-        
-        // Skip weekends
-        if (dayOfWeek === 0 || dayOfWeek === 6) continue;
-        
+
         // Skip future dates
         const today = new Date();
         const currentDate = new Date(year, month - 1, day);
         if (currentDate > today) continue;
+
+        // Weekends: auto-credit dailyPotential (no performance/attendance check)
+        if (dayOfWeek === 0 || dayOfWeek === 6) {
+          weekendDaysCount++;
+          performanceEarnings += dailyPotential;
+          fullPotentialEarnings += dailyPotential;
+          continue;
+        }
         
         const attendance = attendanceLookup.get(dateStr);
         const stats = statsPerDay.get(dateStr);

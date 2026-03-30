@@ -6,10 +6,11 @@
 import {
   getWorkingDaysInMonth,
   getWorkingDaysElapsed,
+  getWeekendDaysElapsed,
+  getWeekendDaysRemaining,
   getGhostDays,
   getCurrentDateKarachi,
   formatDateYMD,
-  getMonthStart,
 } from './date-utils';
 
 // Attendance multipliers for salary calculation
@@ -242,10 +243,15 @@ export function calculateSalaryBreakdown(
   const now = getCurrentDateKarachi();
   const today = formatDateYMD(now);
   
-  // Calculate base values
+  // Calculate base values — salary divided by 30 (constant), weekends auto-credited
+  const SALARY_DIVISOR = 30;
   const workingDaysInMonth = getWorkingDaysInMonth(now);
-  const dailyPotential = baseSalary / workingDaysInMonth;
+  const dailyPotential = baseSalary / SALARY_DIVISOR;
   
+  // Calculate weekend days elapsed (auto-credited at dailyPotential)
+  const weekendDaysElapsed = getWeekendDaysElapsed(now);
+  const weekendEarnings = weekendDaysElapsed * dailyPotential;
+
   // Calculate ghost days and earnings (pre-launch days assumed 100%)
   const ghostDays = getGhostDays(systemLaunchDate, now);
   const ghostEarnings = ghostDays * dailyPotential; // 100% for ghost days
@@ -360,21 +366,22 @@ export function calculateSalaryBreakdown(
     dailyPotential
   );
   
-  // Total earned BEFORE late policy deduction = Ghost + Previous Days + Today
-  const totalEarnedBeforeDeduction = ghostEarnings + activeEarnings + todayEarnings;
-  
+  // Total earned BEFORE late policy deduction = Ghost + Previous Days + Today + Weekends
+  const totalEarnedBeforeDeduction = ghostEarnings + activeEarnings + todayEarnings + weekendEarnings;
+
   // Total earned AFTER late policy deduction
   const totalEarned = totalEarnedBeforeDeduction - latePolicyDeduction.deductionAmount;
-  
+
   // Calculate projected salary (assuming average performance continues)
   const daysWorkedSoFar = activeDays + (todayStats ? 1 : 0);
-  const avgPerformanceScore = daysWorkedSoFar > 0 
-    ? totalPerformanceScore / daysWorkedSoFar 
+  const avgPerformanceScore = daysWorkedSoFar > 0
+    ? totalPerformanceScore / daysWorkedSoFar
     : 1.0;
-  
+
   const workingDaysElapsed = getWorkingDaysElapsed(now);
-  const remainingDays = workingDaysInMonth - workingDaysElapsed;
-  const projectedRemainingEarnings = remainingDays * dailyPotential * avgPerformanceScore;
+  const remainingWorkingDays = workingDaysInMonth - workingDaysElapsed;
+  const remainingWeekendDays = getWeekendDaysRemaining(now);
+  const projectedRemainingEarnings = (remainingWorkingDays * dailyPotential * avgPerformanceScore) + (remainingWeekendDays * dailyPotential);
   const projectedSalary = totalEarned + projectedRemainingEarnings;
   
   return {
