@@ -97,15 +97,35 @@ export async function POST(request: NextRequest) {
     // ─── Step 1: Scrape business website (use cached if available) ─────
     let scrapedData: ScrapedBusinessData;
 
+    // Skip scraping entirely if no website AND no email — just use CSV data
+    const hasRealWebsite = website.trim() && website.trim().toLowerCase() !== 'none' && website.trim().toLowerCase() !== 'n/a';
+    const hasRealEmail = emailField.trim() && emailField.trim().toLowerCase() !== 'none' && emailField.trim().toLowerCase() !== 'n/a' && emailField.includes('@');
+
     if (lead.scraped_data) {
       console.log(`[AI-ENRICH] Using cached scraped data for lead ${lead_id}`);
       scrapedData = lead.scraped_data as ScrapedBusinessData;
+    } else if (!hasRealWebsite && !hasRealEmail) {
+      console.log(`[AI-ENRICH] No website/email for lead ${lead_id} — skipping scrape, using CSV data only`);
+      scrapedData = {
+        method: 'fallback',
+        url: null, searchQuery: null, discoveredUrl: null,
+        homepageText: null, servicesText: null, productsText: null,
+        solutionsText: null, featuresText: null, blogText: null, contactText: null,
+        extractedEmails: [], extractedPhones: [],
+        pageTitle: null, metaDescription: null,
+        scrapeSuccess: false, errorMessage: 'No website or email available — using CSV data only',
+      };
+      // Cache so we don't re-check
+      await queryOne(
+        `UPDATE dialer_leads SET scraped_data = $1 WHERE id = $2`,
+        [JSON.stringify(scrapedData), lead_id]
+      );
     } else {
       console.log(`[AI-ENRICH] Scraping business for lead ${lead_id}: ${cleanBusinessName || lead.firm_name}`);
       try {
         scrapedData = await scrapeBusinessForEnrichment({
-          website: website.trim() || undefined,
-          email: emailField.trim() || undefined,
+          website: hasRealWebsite ? website.trim() : undefined,
+          email: hasRealEmail ? emailField.trim() : undefined,
           businessName: cleanBusinessName || undefined,
           state: stateField.trim() || undefined,
           zipCode: cleanZip || undefined,
