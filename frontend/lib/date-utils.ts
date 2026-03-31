@@ -131,56 +131,6 @@ export function getWorkingDaysElapsed(referenceDate: Date = getCurrentDateKarach
 }
 
 /**
- * Get weekend days (Sat + Sun) elapsed in current month (up to today)
- * Used for auto-crediting weekend salary at baseSalary/30
- */
-export function getWeekendDaysElapsed(referenceDate: Date = getCurrentDateKarachi()): number {
-  const monthStart = getMonthStart(referenceDate);
-  let weekendDays = 0;
-  const current = new Date(monthStart);
-  current.setHours(0, 0, 0, 0);
-  const end = new Date(referenceDate);
-  end.setHours(0, 0, 0, 0);
-
-  while (current <= end) {
-    const day = current.getDay();
-    if (day === 0 || day === 6) {
-      weekendDays++;
-    }
-    current.setDate(current.getDate() + 1);
-  }
-
-  return weekendDays;
-}
-
-/**
- * Get remaining weekend days in the month (after today)
- */
-export function getWeekendDaysRemaining(referenceDate: Date = getCurrentDateKarachi()): number {
-  const monthEnd = getMonthEnd(referenceDate);
-  const tomorrow = new Date(referenceDate);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-
-  if (tomorrow > monthEnd) return 0;
-
-  let weekendDays = 0;
-  const current = new Date(tomorrow);
-  current.setHours(0, 0, 0, 0);
-  const end = new Date(monthEnd);
-  end.setHours(0, 0, 0, 0);
-
-  while (current <= end) {
-    const day = current.getDay();
-    if (day === 0 || day === 6) {
-      weekendDays++;
-    }
-    current.setDate(current.getDate() + 1);
-  }
-
-  return weekendDays;
-}
-
-/**
  * Get remaining working days in the month
  */
 export function getWorkingDaysRemaining(referenceDate: Date = getCurrentDateKarachi()): number {

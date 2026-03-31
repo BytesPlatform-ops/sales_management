@@ -67,7 +67,6 @@ interface AgentPayroll {
   avgPerformanceScore: number;
   performanceBonus: number;
   deductions: number;
-  weekendEarnings: number;
   finalPayout: number;
   dailyBreakdown: {
     date: string;
@@ -204,7 +203,7 @@ export async function GET(request: NextRequest) {
     });
 
     for (const agent of agents) {
-      const dailyPotential = agent.base_salary / 30;
+      const dailyPotential = agent.base_salary / workingDays;
       const agentDailyStats = dailyStatsMap.get(`${agent.id}`) || [];
       const agentCallLogs = callLogsMap.get(agent.extension_number) || [];
       const agentAttendance = attendanceMap.get(`${agent.id}`) || [];
@@ -255,24 +254,18 @@ export async function GET(request: NextRequest) {
       const dailyBreakdown: AgentPayroll['dailyBreakdown'] = [];
       
       // Process each day in the month
-      let weekendDaysCount = 0;
       const daysInMonth = new Date(year, month, 0).getDate();
       for (let day = 1; day <= daysInMonth; day++) {
         const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
         const dayOfWeek = new Date(year, month - 1, day).getDay();
-
+        
+        // Skip weekends
+        if (dayOfWeek === 0 || dayOfWeek === 6) continue;
+        
         // Skip future dates
         const today = new Date();
         const currentDate = new Date(year, month - 1, day);
         if (currentDate > today) continue;
-
-        // Weekends: auto-credit dailyPotential (no performance/attendance check)
-        if (dayOfWeek === 0 || dayOfWeek === 6) {
-          weekendDaysCount++;
-          performanceEarnings += dailyPotential;
-          fullPotentialEarnings += dailyPotential;
-          continue;
-        }
         
         const attendance = attendanceLookup.get(dateStr);
         const stats = statsPerDay.get(dateStr);
@@ -317,11 +310,10 @@ export async function GET(request: NextRequest) {
       }
       
       // Calculate final values
-      const weekendEarnings = weekendDaysCount * dailyPotential;
       const avgPerformanceScore = daysWorked > 0 ? totalPerformanceScore / daysWorked : 0;
       const deductions = fullPotentialEarnings - performanceEarnings;
       const performanceBonus = performanceEarnings - (daysWorked * dailyPotential * 0.5); // Bonus above 50% base
-
+      
       agentPayrolls.push({
         id: agent.id,
         name: agent.full_name,
@@ -339,7 +331,6 @@ export async function GET(request: NextRequest) {
         avgPerformanceScore: Math.round(avgPerformanceScore * 100),
         performanceBonus: Math.max(0, performanceBonus),
         deductions: Math.max(0, deductions),
-        weekendEarnings: Math.round(weekendEarnings),
         finalPayout: performanceEarnings,
         dailyBreakdown,
       });
@@ -399,7 +390,6 @@ export async function GET(request: NextRequest) {
           finalPayout: Math.round(a.finalPayout),
           deductions: Math.round(a.deductions),
           performanceBonus: Math.round(a.performanceBonus),
-          weekendEarnings: a.weekendEarnings,
         })),
         payoutTrend,
       },
