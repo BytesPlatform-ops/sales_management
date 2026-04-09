@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
+import { listRecordings, getRecordingDownloadUrl } from '@/lib/3cx-client';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
@@ -114,6 +115,78 @@ export async function POST(request: NextRequest) {
     if (call_log_id) {
       const callLog = await queryOne<any>('SELECT rec_id FROM call_logs WHERE id = $1', [call_log_id]);
       recId = callLog?.rec_id || null;
+    }
+
+    // Check if agent is Extension 11 — auto-approve without HR
+    const agent = await queryOne<any>('SELECT extension_number FROM users WHERE id = $1', [Number(jwt.userId)]);
+    const isAutoApprove = agent?.extension_number === '11';
+
+    if (isAutoApprove) {
+      // Auto-approve: insert as approved and fetch recording from 3CX immediately
+      let downloadUrl: string | null = null;
+
+      // Try to find recording in 3CX
+      if (!recId && call_log_id) {
+        const callLog = await queryOne<any>('SELECT * FROM call_logs WHERE id = $1', [call_log_id]);
+        if (callLog?.rec_id) {
+          recId = callLog.rec_id;
+        } else if (callLog) {
+          const clientSecret = (await queryOne<any>("SELECT value FROM system_settings WHERE key = 'recording_access_token'"))?.value;
+          if (clientSecret) {
+            const callDate = new Date(callLog.call_time);
+            const startDate = new Date(callDate.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            const endDate = new Date(callDate.getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            const { recordings } = await listRecordings(clientSecret, startDate, endDate);
+            const phoneClean = cleanPhone.replace(/[^\d]/g, '').slice(-10);
+            const match = recordings.find((r: any) => {
+              const toClean = r.ToCallerNumber.replace(/[^\d]/g, '').slice(-10);
+              const fromClean = r.FromCallerNumber.replace(/[^\d]/g, '').slice(-10);
+              return toClean === phoneClean || fromClean === phoneClean;
+            });
+            if (match) {
+              recId = String(match.Id);
+              await queryOne('UPDATE call_logs SET rec_id = $1 WHERE id = $2', [recId, callLog.id]);
+            }
+          }
+        }
+      }
+
+      if (!recId) {
+        const clientSecret = (await queryOne<any>("SELECT value FROM system_settings WHERE key = 'recording_access_token'"))?.value;
+        if (clientSecret) {
+          const endDate = new Date().toISOString().split('T')[0];
+          const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+          const { recordings } = await listRecordings(clientSecret, startDate, endDate);
+          const phoneClean = cleanPhone.replace(/[^\d]/g, '').slice(-10);
+          const match = recordings.find((r: any) => {
+            const toClean = r.ToCallerNumber.replace(/[^\d]/g, '').slice(-10);
+            const fromClean = r.FromCallerNumber.replace(/[^\d]/g, '').slice(-10);
+            return toClean === phoneClean || fromClean === phoneClean;
+          });
+          if (match) {
+            recId = String(match.Id);
+          }
+        }
+      }
+
+      if (recId) {
+        const clientSecret = (await queryOne<any>("SELECT value FROM system_settings WHERE key = 'recording_access_token'"))?.value;
+        if (clientSecret) {
+          downloadUrl = await getRecordingDownloadUrl(Number(recId), clientSecret);
+        }
+      }
+
+      const result = await queryOne<any>(
+        `INSERT INTO recording_requests (agent_id, phone_number, call_log_id, rec_id, notes, status, recording_url)
+         VALUES ($1, $2, $3, $4, $5, 'approved', $6) RETURNING *`,
+        [Number(jwt.userId), cleanPhone, call_log_id || null, recId, notes || null, downloadUrl]
+      );
+
+      return NextResponse.json({
+        status: 'success',
+        message: recId ? 'Recording auto-approved — ready to download' : 'Recording auto-approved — recording not found in 3CX',
+        data: result,
+      });
     }
 
     const result = await queryOne<any>(
