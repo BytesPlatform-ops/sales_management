@@ -46,3 +46,6 @@ owner_direct/
 *.pid
 *.seed
 *.pid.lock
+
+# worker secrets (keep .env.example as the placeholder template)
+worker/.env

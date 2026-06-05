@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Crm xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" Country="US" Name="PythonWebhook" Version="1">
+  <Number Prefix="AsIs" MaxLength="100" />
+  <Connection MaxConcurrentRequests="2" />
+  <Parameters />
+  <Authentication Type="No" />
+  <Scenarios>
+    <Scenario Type="SearchContact">
+      <Request SkipIf="False" Url="https://unodoriferous-dillon-accomplishable.ngrok-free.dev/3cx-webhook?action=search" MessagePasses="0" RequestEncoding="Json" RequestType="Post" ResponseType="Json">
+        <PostValues Key="">
+          <Value Key="search_number" Passes="0" Type="String">[Number]</Value>
+        </PostValues>
+      </Request>
+      <Rules>
+        <Rule Type="Any">
+          <Outputs>
+            <Output Type="ContactID" Passes="0" Value="[ContactID]" />
+            <Output Type="FirstName" Passes="0" Value="[FirstName]" />
+            <Output Type="LastName" Passes="0" Value="[LastName]" />
+            <Output Type="PhoneMobile" Passes="0" Value="[PhoneMobile]" />
+          </Outputs>
+        </Rule>
+      </Rules>
+      <Variables />
+      <Outputs />
+    </Scenario>
+
+    <Scenario Type="ReportCall">
+      <Request SkipIf="False" Url="https://unodoriferous-dillon-accomplishable.ngrok-free.dev/3cx-webhook" MessagePasses="0" RequestEncoding="Json" RequestType="Post" ResponseType="Json">
+        <PostValues Key="">
+          <Value Key="agent_extension" Passes="0" Type="String">[Agent]</Value>
+          <Value Key="duration" Passes="0" Type="String">[Duration]</Value>
+          <Value Key="number" Passes="0" Type="String">[Number]</Value>
+          <Value Key="call_type" Passes="0" Type="String">[CallType]</Value>
+          <!-- NEW: Recording fields for QA auditing -->
+          <Value Key="call_id" Passes="0" Type="String">[CallId]</Value>
+          <Value Key="rec_id" Passes="0" Type="String">[RecordingId]</Value>
+          <Value Key="recording_url" Passes="0" Type="String">[Recording]</Value>
+        </PostValues>
+      </Request>
+      <Variables />
+      <Outputs />
+    </Scenario>
+  </Scenarios>
+</Crm>

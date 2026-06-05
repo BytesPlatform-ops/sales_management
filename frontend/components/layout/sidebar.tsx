@@ -20,6 +20,10 @@ import {
   PhoneCall,
   Target,
   FileAudio,
+  ClipboardCheck,
+  GraduationCap,
+  Sparkles,
+  LineChart,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -62,6 +66,12 @@ const navItems: NavItem[] = [
     roles: ['agent'],
   },
   {
+    label: 'My Coaching',
+    href: '/agent/coaching',
+    icon: GraduationCap,
+    roles: ['agent'],
+  },
+  {
     label: 'Dashboard',
     href: '/hr',
     icon: LayoutDashboard,
@@ -95,6 +105,24 @@ const navItems: NavItem[] = [
     label: 'Call Auditing',
     href: '/hr/auditing',
     icon: Headphones,
+    roles: ['hr'],
+  },
+  {
+    label: 'Call QA',
+    href: '/hr/qa-daily',
+    icon: ClipboardCheck,
+    roles: ['hr'],
+  },
+  {
+    label: 'Weekly Review',
+    href: '/hr/qa-weekly',
+    icon: Sparkles,
+    roles: ['hr'],
+  },
+  {
+    label: 'Monthly Trends',
+    href: '/hr/qa-monthly',
+    icon: LineChart,
     roles: ['hr'],
   },
   {
