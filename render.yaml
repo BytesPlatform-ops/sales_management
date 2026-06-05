@@ -1,0 +1,100 @@
+# Render Blueprint — QA module ADD-ONS only.
+#
+# Your existing services stay as-is:
+#   - sales_management-frontend  (Next.js app)  <- already hosts the /api/cron/* endpoints
+#                                                   after you push the QA code
+#   - sales_management           (backend)
+#
+# This Blueprint adds ONLY the new pieces:
+#   - transcription-worker : always-on Python worker (faster-whisper + pyannote)
+#   - 4x cron jobs         : each curls the existing frontend on a UTC schedule
+#
+# Docs: https://render.com/docs/blueprint-spec | https://render.com/docs/cronjobs
+# Schedules are UTC. PKT = UTC+5  ->  00:00 UTC = 05:00 PKT, etc.
+
+envVarGroups:
+  # Attach this group to BOTH the cron jobs (below) AND your existing
+  # sales_management-frontend service so CRON_SECRET matches on both sides.
+  - name: qa-shared
+    envVars:
+      - key: CRON_SECRET
+        sync: false
+      - key: APP_URL          # public URL of sales_management-frontend
+        sync: false           # e.g. https://sales-management-frontend.onrender.com
+
+services:
+  # ---------------------------------------------------------------------------
+  # Python transcription worker (always-on; Docker for ffmpeg).
+  # Run multiple instances for throughput — FOR UPDATE SKIP LOCKED makes it safe.
+  # ---------------------------------------------------------------------------
+  - type: worker
+    name: transcription-worker
+    runtime: docker
+    rootDir: worker
+    dockerfilePath: ./Dockerfile
+    plan: standard           # pyannote+torch need ~2-4GB RAM; do NOT use a tiny plan
+    numInstances: 2
+    envVars:
+      - key: DATABASE_URL
+        sync: false          # postgresql://...@...pooler.supabase.com:6543/postgres?sslmode=require
+      - key: HUGGINGFACE_TOKEN
+        sync: false
+      - key: THREECX_BASE_URL
+        value: https://bytesplatform.tx.3cx.us
+      - key: THREECX_CLIENT_ID
+        value: sales
+      - key: WHISPER_MODEL
+        value: small.en
+      - key: WHISPER_DEVICE
+        value: cpu
+      - key: WHISPER_COMPUTE
+        value: int8
+      - key: WORKER_POLL_INTERVAL
+        value: "5"
+      - key: WORKER_MAX_ATTEMPTS
+        value: "4"
+
+  # ---------------------------------------------------------------------------
+  # Cron jobs — each curls one endpoint on the existing frontend.
+  # Build is a no-op (we only need curl, which the Node runtime provides).
+  # -f makes curl exit non-zero on HTTP error so Render marks the run failed.
+  # ---------------------------------------------------------------------------
+  - type: cron
+    name: cron-discover-calls
+    runtime: node
+    rootDir: frontend
+    schedule: "0 0 * * *"          # 05:00 PKT daily
+    buildCommand: 'echo "no build needed"'
+    startCommand: 'curl -fsS -X POST "$APP_URL/api/cron/discover-calls" -H "Authorization: Bearer $CRON_SECRET"'
+    envVars:
+      - fromGroup: qa-shared
+
+  - type: cron
+    name: cron-daily-eval
+    runtime: node
+    rootDir: frontend
+    schedule: "0 1 * * *"          # 06:00 PKT daily
+    buildCommand: 'echo "no build needed"'
+    startCommand: 'curl -fsS -X POST "$APP_URL/api/cron/daily-eval" -H "Authorization: Bearer $CRON_SECRET"'
+    envVars:
+      - fromGroup: qa-shared
+
+  - type: cron
+    name: cron-weekly-coach
+    runtime: node
+    rootDir: frontend
+    schedule: "0 2 * * 1"          # 07:00 PKT Mondays
+    buildCommand: 'echo "no build needed"'
+    startCommand: 'curl -fsS -X POST "$APP_URL/api/cron/weekly-coach" -H "Authorization: Bearer $CRON_SECRET"'
+    envVars:
+      - fromGroup: qa-shared
+
+  - type: cron
+    name: cron-monthly-rollup
+    runtime: node
+    rootDir: frontend
+    schedule: "0 2 1 * *"          # 07:00 PKT on the 1st
+    buildCommand: 'echo "no build needed"'
+    startCommand: 'curl -fsS -X POST "$APP_URL/api/cron/monthly-rollup" -H "Authorization: Bearer $CRON_SECRET"'
+    envVars:
+      - fromGroup: qa-shared

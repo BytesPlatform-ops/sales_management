@@ -1,0 +1,9 @@
+# Python 3.10–3.12 recommended
+faster-whisper>=1.0.0
+pyannote.audio>=3.1.1
+psycopg2-binary>=2.9.9
+requests>=2.31.0
+# torch/torchaudio are pulled in by pyannote.audio; pin if you need a specific build.
+# On Apple Silicon, the default CPU wheels work; transcription runs on CPU (int8).
+torch>=2.1.0
+torchaudio>=2.1.0

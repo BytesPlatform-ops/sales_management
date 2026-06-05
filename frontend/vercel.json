@@ -1,0 +1,8 @@
+{
+  "crons": [
+    { "path": "/api/cron/discover-calls", "schedule": "0 0 * * *" },
+    { "path": "/api/cron/daily-eval", "schedule": "0 1 * * *" },
+    { "path": "/api/cron/weekly-coach", "schedule": "0 2 * * 1" },
+    { "path": "/api/cron/monthly-rollup", "schedule": "0 2 1 * *" }
+  ]
+}
