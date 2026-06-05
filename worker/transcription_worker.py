@@ -42,6 +42,9 @@ DATABASE_URL        = os.environ["DATABASE_URL"]
 THREECX_BASE_URL    = os.environ.get("THREECX_BASE_URL", "https://bytesplatform.tx.3cx.us")
 THREECX_CLIENT_ID   = os.environ.get("THREECX_CLIENT_ID", "sales")
 HF_TOKEN            = os.environ.get("HUGGINGFACE_TOKEN")  # required for pyannote
+# faster-whisper / huggingface_hub also read HF_TOKEN; mirror it so both are authenticated.
+if HF_TOKEN:
+    os.environ.setdefault("HF_TOKEN", HF_TOKEN)
 WHISPER_MODEL       = os.environ.get("WHISPER_MODEL", "small.en")
 WHISPER_DEVICE      = os.environ.get("WHISPER_DEVICE", "cpu")     # 'cpu' | 'cuda'
 WHISPER_COMPUTE     = os.environ.get("WHISPER_COMPUTE", "int8")   # int8 (cpu) | float16 (cuda)
@@ -240,7 +243,11 @@ def load_models():
         raise RuntimeError("HUGGINGFACE_TOKEN is required for pyannote diarization. "
                            "Accept the model license at hf.co/pyannote/speaker-diarization-3.1")
     log(f"Loading pyannote '{DIARIZATION_MODEL}' ...")
-    _diarizer = Pipeline.from_pretrained(DIARIZATION_MODEL, use_auth_token=HF_TOKEN)
+    # pyannote.audio 3.1+ renamed `use_auth_token` -> `token`; support both.
+    try:
+        _diarizer = Pipeline.from_pretrained(DIARIZATION_MODEL, token=HF_TOKEN)
+    except TypeError:
+        _diarizer = Pipeline.from_pretrained(DIARIZATION_MODEL, use_auth_token=HF_TOKEN)
     # Apple Silicon: MPS support in pyannote is flaky; CPU is the safe default.
     if WHISPER_DEVICE == "cuda" and torch.cuda.is_available():
         _diarizer.to(torch.device("cuda"))
