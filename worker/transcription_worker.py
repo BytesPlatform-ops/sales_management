@@ -259,7 +259,10 @@ def load_models():
 # ----------------------------------------------------------------------------
 def diarize(wav_path: str):
     """Return list of (start, end, speaker_label) sorted by start."""
-    annotation = _diarizer(wav_path)
+    result = _diarizer(wav_path)
+    # pyannote.audio 4.x returns a DiarizeOutput (use .speaker_diarization);
+    # 3.x returns a pyannote.core.Annotation directly. Handle both.
+    annotation = getattr(result, "speaker_diarization", result)
     turns = [(seg.start, seg.end, spk)
              for seg, _, spk in annotation.itertracks(yield_label=True)]
     turns.sort(key=lambda t: t[0])
