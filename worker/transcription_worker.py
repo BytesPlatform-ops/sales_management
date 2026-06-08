@@ -55,6 +55,7 @@ POLL_INTERVAL       = float(os.environ.get("WORKER_POLL_INTERVAL", "5"))
 MAX_ATTEMPTS        = int(os.environ.get("WORKER_MAX_ATTEMPTS", "4"))
 EARLY_WINDOW_SEC    = 20.0   # window used for the agent/customer speaker heuristic
 STALE_LOCK_MIN      = 30     # reclaim rows stuck 'downloading'/'transcribing' this long
+MAX_AUDIO_SEC       = int(os.environ.get("MAX_AUDIO_SEC", "180"))  # cap processed audio (mem+time)
 
 WORKER_ID = f"{socket.gethostname()}:{os.getpid()}"
 
@@ -216,10 +217,10 @@ def download_recording(rec_id: int, client_secret: str, dest_path: str):
 
 
 def to_wav16k(src_path: str, dst_path: str):
-    """Convert any audio to 16kHz mono PCM — what whisper/pyannote expect."""
+    """Convert to 16kHz mono PCM, capped at MAX_AUDIO_SEC to bound memory + time."""
     subprocess.run(
         ["ffmpeg", "-y", "-i", src_path, "-ar", "16000", "-ac", "1",
-         "-c:a", "pcm_s16le", dst_path],
+         "-c:a", "pcm_s16le", "-t", str(MAX_AUDIO_SEC), dst_path],
         check=True,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
