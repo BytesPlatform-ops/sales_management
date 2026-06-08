@@ -32,8 +32,8 @@ services:
     runtime: docker
     rootDir: worker
     dockerfilePath: ./Dockerfile
-    plan: standard           # pyannote+torch need ~2-4GB RAM; do NOT use a tiny plan
-    numInstances: 2
+    plan: standard           # base.en + memory hygiene keeps this within 2GB
+    numInstances: 1          # cheaper; plenty for the nightly volume
     envVars:
       - key: DATABASE_URL
         sync: false          # postgresql://...@...pooler.supabase.com:6543/postgres?sslmode=require
@@ -44,7 +44,7 @@ services:
       - key: THREECX_CLIENT_ID
         value: sales
       - key: WHISPER_MODEL
-        value: small.en
+        value: base.en       # smaller than small.en to cut memory
       - key: WHISPER_DEVICE
         value: cpu
       - key: WHISPER_COMPUTE

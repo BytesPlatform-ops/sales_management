@@ -19,6 +19,7 @@ Env (see .env.example):
 """
 
 import os
+import gc
 import sys
 import json
 import time
@@ -237,6 +238,9 @@ def load_models():
     from pyannote.audio import Pipeline
     import torch
 
+    # Keep memory + CPU overhead low (Render plan has 1 CPU; avoids thread-pool bloat).
+    torch.set_num_threads(1)
+
     log(f"Loading faster-whisper '{WHISPER_MODEL}' on {WHISPER_DEVICE}/{WHISPER_COMPUTE} ...")
     _whisper = WhisperModel(WHISPER_MODEL, device=WHISPER_DEVICE, compute_type=WHISPER_COMPUTE)
 
@@ -452,6 +456,8 @@ def process_call(conn, row, client_secret):
             os.rmdir(tmpdir)
         except OSError:
             pass
+        # Release memory between calls so peak RSS stays low on the small plan.
+        gc.collect()
 
 
 # ----------------------------------------------------------------------------
