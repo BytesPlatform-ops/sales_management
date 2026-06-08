@@ -197,13 +197,58 @@ export default function QaDailyPage() {
               ) : evaluations.length === 0 ? (
                 <p className="text-center text-gray-400 py-10">No evaluations found.</p>
               ) : (
-                evaluations.map((ev) => <CallCard key={ev.id} ev={ev} authHeaders={authHeaders} />)
+                <DrillBody evaluations={evaluations} authHeaders={authHeaders} />
               )}
             </div>
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+// ---------- drill-down body: graded calls + collapsed not-evaluable summary ----------
+function DrillBody({ evaluations, authHeaders }: { evaluations: EvaluationRow[]; authHeaders: () => Record<string, string> }) {
+  const [showSkipped, setShowSkipped] = useState(false);
+  const graded = evaluations.filter((e) => !e.not_evaluable);
+  const skipped = evaluations.filter((e) => e.not_evaluable);
+
+  // tally skip reasons for the summary line
+  const reasons: Record<string, number> = {};
+  for (const e of skipped) {
+    const r = e.disposition && e.disposition !== 'connected_conversation' ? e.disposition : (e.not_evaluable_reason || 'other');
+    reasons[r] = (reasons[r] || 0) + 1;
+  }
+  const reasonSummary = Object.entries(reasons).sort((a, b) => b[1] - a[1]).map(([r, n]) => `${n} ${r.replace(/_/g, ' ')}`).join(' · ');
+
+  return (
+    <>
+      {graded.length === 0 && (
+        <p className="text-center text-gray-400 py-6 text-sm">No gradeable conversations this shift — all calls were unanswered, voicemail, or too short.</p>
+      )}
+      {graded.map((ev) => <CallCard key={ev.id} ev={ev} authHeaders={authHeaders} />)}
+
+      {skipped.length > 0 && (
+        <div className="mt-2">
+          <button
+            onClick={() => setShowSkipped((s) => !s)}
+            className="w-full text-left text-xs text-gray-500 bg-gray-100 hover:bg-gray-200 rounded-lg px-3 py-2 transition-colors"
+          >
+            {showSkipped ? '▾' : '▸'} {skipped.length} not-evaluable calls (not scored) — {reasonSummary}
+          </button>
+          {showSkipped && (
+            <div className="mt-2 space-y-1">
+              {skipped.map((ev) => (
+                <div key={ev.id} className="text-xs text-gray-500 flex items-center justify-between px-3 py-1.5 border border-gray-100 rounded">
+                  <span>{fmtTime(ev.call_started_at)} · {ev.customer_number || 'unknown'} · {fmtDuration(ev.duration_sec)}</span>
+                  <span className="text-gray-400">{(ev.disposition && ev.disposition !== 'connected_conversation' ? ev.disposition : ev.not_evaluable_reason || 'n/a').replace(/_/g, ' ')}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </>
   );
 }
 
