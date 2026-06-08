@@ -25,6 +25,7 @@ import time
 import socket
 import signal
 import tempfile
+import traceback
 import subprocess
 from datetime import datetime
 
@@ -264,7 +265,8 @@ def diarize(wav_path: str):
     # 3.x returns a pyannote.core.Annotation directly. Handle both.
     annotation = getattr(result, "speaker_diarization", result)
     turns = [(seg.start, seg.end, spk)
-             for seg, _, spk in annotation.itertracks(yield_label=True)]
+             for seg, _, spk in annotation.itertracks(yield_label=True)
+             if seg.start is not None and seg.end is not None]
     turns.sort(key=lambda t: t[0])
     return turns
 
@@ -283,6 +285,8 @@ def resolve_speaker_roles(turns, call_type: str):
     # speaking time per label, overall and within the early window
     early, total = {}, {}
     for start, end, spk in turns:
+        if start is None or end is None:
+            continue
         dur = max(0.0, end - start)
         total[spk] = total.get(spk, 0.0) + dur
         if start < EARLY_WINDOW_SEC:
@@ -345,16 +349,21 @@ def transcribe_and_align(wav_path: str, turns, role_map):
         words = seg.words or []
         if not words:
             # no word timestamps (rare) — attribute the whole segment by its midpoint
+            if seg.start is None or seg.end is None:
+                continue
             role = role_for((seg.start + seg.end) / 2)
-            txt = seg.text.strip()
+            txt = (seg.text or "").strip()
             if txt:
                 _append(grouped, role, seg.start, seg.end, txt)
                 word_count += len(txt.split())
             continue
         for w in words:
+            # faster-whisper can emit words with None start/end — skip those.
+            if w.start is None or w.end is None:
+                continue
             mid = (w.start + w.end) / 2
             role = role_for(mid)
-            _append(grouped, role, w.start, w.end, w.word.strip())
+            _append(grouped, role, w.start, w.end, (w.word or "").strip())
             word_count += 1
 
     full_text = "\n".join(f"[{g['speaker']}] {g['text'].strip()}" for g in grouped if g["text"].strip())
@@ -423,9 +432,11 @@ def process_call(conn, row, client_secret):
         log(f"  ok: {word_count} words, talk_ratio={talk_ratio}, suspect={suspect}")
 
     except Exception as e:
-        log(f"  FAILED id={row_id}: {e}")
+        tb = traceback.format_exc()
+        log(f"  FAILED id={row_id}: {e}\n{tb}")
         try:
-            mark_failed(conn, row_id, row.get("attempts", 1), e)
+            # store the full traceback (truncated) so the exact failing line is visible
+            mark_failed(conn, row_id, row.get("attempts", 1), f"{e}\n{tb}")
         except Exception as e2:
             log(f"  (could not mark failed: {e2})")
             conn.rollback()
