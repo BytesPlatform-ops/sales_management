@@ -56,6 +56,8 @@ MAX_ATTEMPTS        = int(os.environ.get("WORKER_MAX_ATTEMPTS", "4"))
 EARLY_WINDOW_SEC    = 20.0   # window used for the agent/customer speaker heuristic
 STALE_LOCK_MIN      = 30     # reclaim rows stuck 'downloading'/'transcribing' this long
 MAX_AUDIO_SEC       = int(os.environ.get("MAX_AUDIO_SEC", "180"))  # cap processed audio (mem+time)
+# Diarization (pyannote) is the memory hog. Disable it to run whisper-only on a 2GB box.
+DIARIZATION_ENABLED = os.environ.get("DIARIZATION_ENABLED", "true").strip().lower() not in ("false", "0", "no")
 
 WORKER_ID = f"{socket.gethostname()}:{os.getpid()}"
 
@@ -236,7 +238,6 @@ _diarizer = None
 def load_models():
     global _whisper, _diarizer
     from faster_whisper import WhisperModel
-    from pyannote.audio import Pipeline
     import torch
 
     # Keep memory + CPU overhead low (Render plan has 1 CPU; avoids thread-pool bloat).
@@ -245,6 +246,13 @@ def load_models():
     log(f"Loading faster-whisper '{WHISPER_MODEL}' on {WHISPER_DEVICE}/{WHISPER_COMPUTE} ...")
     _whisper = WhisperModel(WHISPER_MODEL, device=WHISPER_DEVICE, compute_type=WHISPER_COMPUTE)
 
+    if not DIARIZATION_ENABLED:
+        log("Diarization DISABLED (low-memory mode) — whisper-only, skipping pyannote.")
+        log("Models ready.")
+        return
+
+    # pyannote imported lazily so disabling it also avoids its memory footprint.
+    from pyannote.audio import Pipeline
     if not HF_TOKEN:
         raise RuntimeError("HUGGINGFACE_TOKEN is required for pyannote diarization. "
                            "Accept the model license at hf.co/pyannote/speaker-diarization-3.1")
@@ -254,7 +262,6 @@ def load_models():
         _diarizer = Pipeline.from_pretrained(DIARIZATION_MODEL, token=HF_TOKEN)
     except TypeError:
         _diarizer = Pipeline.from_pretrained(DIARIZATION_MODEL, use_auth_token=HF_TOKEN)
-    # Apple Silicon: MPS support in pyannote is flaky; CPU is the safe default.
     if WHISPER_DEVICE == "cuda" and torch.cuda.is_available():
         _diarizer.to(torch.device("cuda"))
     log("Models ready.")
@@ -264,7 +271,9 @@ def load_models():
 # Diarization + ASR alignment
 # ----------------------------------------------------------------------------
 def diarize(wav_path: str):
-    """Return list of (start, end, speaker_label) sorted by start."""
+    """Return list of (start, end, speaker_label) sorted by start. Empty if disabled."""
+    if not DIARIZATION_ENABLED or _diarizer is None:
+        return []
     result = _diarizer(wav_path)
     # pyannote.audio 4.x returns a DiarizeOutput (use .speaker_diarization);
     # 3.x returns a pyannote.core.Annotation directly. Handle both.
@@ -347,7 +356,9 @@ def transcribe_and_align(wav_path: str, turns, role_map):
     word_count = 0
 
     def role_for(t):
-        spk = speaker_at(turns, t) if turns else None
+        if not turns:
+            return "speaker"   # no diarization — neutral, unlabeled transcript
+        spk = speaker_at(turns, t)
         return role_map.get(spk, "agent") if spk is not None else "agent"
 
     for seg in segments:

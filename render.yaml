@@ -45,6 +45,8 @@ services:
         value: sales
       - key: WHISPER_MODEL
         value: base.en       # smaller than small.en to cut memory
+      - key: DIARIZATION_ENABLED
+        value: "false"       # whisper-only: fits 2GB. Set true (+ >=4GB RAM) to re-enable speaker split.
       - key: WHISPER_DEVICE
         value: cpu
       - key: WHISPER_COMPUTE

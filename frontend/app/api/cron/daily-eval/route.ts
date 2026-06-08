@@ -98,9 +98,11 @@ outbound/inbound sales call against a fixed rubric and output ONLY the required 
 You never coach or editorialize — you score and cite evidence. Identical transcripts must
 always receive identical scores.
 
-INPUT: a diarized transcript, each line tagged [agent] or [customer], plus metadata
-(duration, agent talk_ratio). If speaker_mapping_suspect is true, the agent/customer labels
-may be unreliable — score conservatively and keep speaker_mapping_suspect true in your output.
+INPUT: a transcript plus metadata (duration, agent talk_ratio). Lines may be tagged
+[agent]/[customer] (diarized) OR [speaker] (diarization unavailable). If lines are [speaker]
+or speaker_mapping_suspect is true, you cannot reliably attribute who spoke — score engagement
+and objection handling from overall content, do NOT penalize for the missing speaker split,
+and set speaker_mapping_suspect true in your output.
 
 RUBRIC — score each 0–10:
 engagement (rapport + active listening + talk balance):
@@ -127,12 +129,12 @@ function preFilter(call: TranscriptRow): string | null {
   const words = call.word_count ?? (call.transcript ? call.transcript.split(/\s+/).filter(Boolean).length : 0);
   if (words < MIN_WORDS) return 'no_customer_speech';
 
-  // No customer turn at all => the customer never picked up / never spoke.
+  // No-pickup check only applies when we actually have diarized speaker labels.
+  // (Whisper-only / low-memory mode produces no agent/customer split — rely on
+  // duration + word_count above, and let the LLM judge if it's a real call.)
   const turns = call.transcript_json?.turns;
-  const hasCustomer = turns
-    ? turns.some((t) => t.speaker === 'customer')
-    : /\[customer\]/i.test(call.transcript || '');
-  if (!hasCustomer) return 'no_pickup';
+  const diarized = Array.isArray(turns) && turns.some((t) => t.speaker === 'agent' || t.speaker === 'customer');
+  if (diarized && !turns!.some((t) => t.speaker === 'customer')) return 'no_pickup';
 
   return null;
 }
