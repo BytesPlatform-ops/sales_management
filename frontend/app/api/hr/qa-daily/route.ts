@@ -55,6 +55,7 @@ interface RollupRow {
   meetings_scheduled: number | null;
   daily_score: number | null;
   summary: string | null;
+  metrics: Record<string, number> | null;
 }
 
 interface EvaluationRow {
@@ -75,6 +76,9 @@ interface EvaluationRow {
   not_evaluable: boolean;
   not_evaluable_reason: string | null;
   transcript: string | null;
+  scorecard: any | null;            // rubric_v2 full scorecard
+  disposition: string | null;
+  attribution_confidence: string | null;
   flag_verdict: string | null;
   flag_dimension: string | null;
   flag_note: string | null;
@@ -122,6 +126,7 @@ export async function GET(request: NextRequest) {
            e.engagement, e.technical_knowledge, e.objection_handling,
            e.meeting_scheduled, e.overall_score, e.reasons, e.evidence,
            e.not_evaluable, e.not_evaluable_reason, t.transcript,
+           e.scorecard, e.disposition, e.attribution_confidence,
            f.verdict AS flag_verdict, f.dimension AS flag_dimension, f.note AS flag_note
          FROM call_evaluations e
          JOIN call_transcripts t ON t.id = e.transcript_id
@@ -151,7 +156,7 @@ export async function GET(request: NextRequest) {
          ds.agent_id, u.full_name, u.extension_number,
          ds.calls_total, ds.calls_evaluated,
          ds.avg_engagement, ds.avg_technical, ds.avg_objection,
-         ds.meetings_scheduled, ds.daily_score, ds.summary
+         ds.meetings_scheduled, ds.daily_score, ds.summary, ds.metrics
        FROM daily_scores ds
        JOIN users u ON u.id = ds.agent_id
        WHERE ds.shift_date = $1
