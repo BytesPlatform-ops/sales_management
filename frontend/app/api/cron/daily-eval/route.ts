@@ -18,7 +18,7 @@ export const maxDuration = 300;
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const CRON_SECRET = process.env.CRON_SECRET || '';
-const MODEL_VERSION = 'gpt-4o-mini-2024-07-18 | rubric_v1';
+const MODEL_VERSION = 'gpt-4o | rubric_v1';
 const PROMPT_VERSION = 'daily_eval_v1';
 
 const VALID_CALL_TYPES = new Set(['OutboundExternal', 'InboundExternal']);
@@ -166,7 +166,7 @@ async function evaluateCall(call: TranscriptRow): Promise<Evaluation> {
     method: 'POST',
     headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4o',
       temperature: 0,
       seed: 7,
       response_format: { type: 'json_schema', json_schema: DAILY_EVAL_SCHEMA },
