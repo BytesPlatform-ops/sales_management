@@ -206,17 +206,21 @@ async function handle(request: NextRequest) {
   }
 
   try {
-    const override = new URL(request.url).searchParams.get('date');
+    const url = new URL(request.url);
+    const override = url.searchParams.get('date');
     const shiftDate = override || getShiftDate(new Date());
+    // Bounded batch so one request stays under the edge (~100s) proxy timeout.
+    const limit = Math.min(Number(url.searchParams.get('limit')) || 40, 500);
 
-    // ---- PHASE 1: evaluate each transcribed call for the shift ----
+    // ---- PHASE 1: evaluate a batch of transcribed calls for the shift ----
     const pending = await query<TranscriptRow>(
       `SELECT id, agent_id, shift_date, duration_sec, call_type, talk_ratio,
               word_count, transcript, transcript_json
        FROM call_transcripts
        WHERE status = 'transcribed' AND shift_date = $1
-       ORDER BY agent_id, call_started_at`,
-      [shiftDate]
+       ORDER BY agent_id, call_started_at
+       LIMIT $2`,
+      [shiftDate, limit]
     );
 
     let evaluated = 0, skipped = 0, failed = 0;
@@ -275,13 +279,22 @@ async function handle(request: NextRequest) {
       );
     }
 
+    // How many transcribed calls still await grading (for batch draining).
+    const remainingRows = await query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM call_transcripts
+       WHERE status = 'transcribed' AND shift_date = $1`,
+      [shiftDate]
+    );
+    const remaining = remainingRows[0]?.n ?? 0;
+
     return NextResponse.json({
       status: 'success',
       shiftDate,
-      pending: pending.length,
+      processed: pending.length,
       evaluated,
       skipped,
       failed,
+      remaining,                       // >0 means call again to drain the rest
       agentsAggregated: agentIds.length,
     });
   } catch (err: any) {

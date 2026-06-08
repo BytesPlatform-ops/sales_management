@@ -65,7 +65,7 @@ services:
     rootDir: frontend
     schedule: "0 0 * * *"          # 05:00 PKT daily
     buildCommand: 'echo "no build needed"'
-    startCommand: 'curl -fsS -X POST "$APP_URL/api/cron/discover-calls" -H "Authorization: Bearer $CRON_SECRET"'
+    startCommand: 'curl -fsS --retry 3 --retry-all-errors --retry-delay 5 -X POST "$APP_URL/api/cron/discover-calls" -H "Authorization: Bearer $CRON_SECRET"'
     envVars:
       - fromGroup: qa-shared
 
@@ -75,7 +75,7 @@ services:
     rootDir: frontend
     schedule: "0 1 * * *"          # 06:00 PKT daily
     buildCommand: 'echo "no build needed"'
-    startCommand: 'curl -fsS -X POST "$APP_URL/api/cron/daily-eval" -H "Authorization: Bearer $CRON_SECRET"'
+    startCommand: 'sh scripts/drain-eval.sh'   # loops in batches until the queue is drained
     envVars:
       - fromGroup: qa-shared
 
@@ -85,7 +85,7 @@ services:
     rootDir: frontend
     schedule: "0 2 * * 1"          # 07:00 PKT Mondays
     buildCommand: 'echo "no build needed"'
-    startCommand: 'curl -fsS -X POST "$APP_URL/api/cron/weekly-coach" -H "Authorization: Bearer $CRON_SECRET"'
+    startCommand: 'curl -fsS --retry 3 --retry-all-errors --retry-delay 5 -X POST "$APP_URL/api/cron/weekly-coach" -H "Authorization: Bearer $CRON_SECRET"'
     envVars:
       - fromGroup: qa-shared
 
@@ -95,6 +95,6 @@ services:
     rootDir: frontend
     schedule: "0 2 1 * *"          # 07:00 PKT on the 1st
     buildCommand: 'echo "no build needed"'
-    startCommand: 'curl -fsS -X POST "$APP_URL/api/cron/monthly-rollup" -H "Authorization: Bearer $CRON_SECRET"'
+    startCommand: 'curl -fsS --retry 3 --retry-all-errors --retry-delay 5 -X POST "$APP_URL/api/cron/monthly-rollup" -H "Authorization: Bearer $CRON_SECRET"'
     envVars:
       - fromGroup: qa-shared
