@@ -336,7 +336,7 @@ export default function HRDashboard() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {data?.agents.slice(0, 10).map((agent: any) => (
+              {data?.agents.filter((a: any) => a.is_active).slice(0, 10).map((agent: any) => (
                 <TableRow key={agent.id}>
                   <TableCell>
                     <div className="flex items-center gap-3">
