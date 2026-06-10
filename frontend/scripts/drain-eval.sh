@@ -5,7 +5,8 @@
 set -e
 
 while : ; do
-  R=$(curl -fsS --retry 3 --retry-all-errors --retry-delay 5 \
+  R=$(curl -fsS -A "Mozilla/5.0 (compatible; BytesQA-Cron/1.0)" \
+        --retry 5 --retry-all-errors --retry-delay 20 \
         -X POST "$APP_URL/api/cron/daily-eval?limit=40" \
         -H "Authorization: Bearer $CRON_SECRET")
   echo "$R"
