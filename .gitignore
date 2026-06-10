@@ -49,3 +49,4 @@ owner_direct/
 
 # worker secrets (keep .env.example as the placeholder template)
 worker/.env
+salary-gamification/
