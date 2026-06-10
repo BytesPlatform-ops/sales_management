@@ -6,6 +6,7 @@ import {
   calculateDailyEarnings,
   ATTENDANCE_MULTIPLIERS,
 } from '@/lib/salary-utils';
+import { getAllTargets } from '@/lib/targets';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
@@ -115,6 +116,9 @@ export async function GET(request: NextRequest) {
     const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
     const monthEnd = `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`;
     
+    // HR-configurable performance targets (DB-backed, falls back to defaults)
+    const allTargets = await getAllTargets();
+
     // 3. Get all agents
     const agents = await query<Agent>(
       `SELECT id, username, full_name, extension_number, base_salary, shift_start, shift_end, employment_type
@@ -281,7 +285,11 @@ export async function GET(request: NextRequest) {
           leads_count: stats?.leads || 0,
         };
         
-        const performanceScore = calculatePerformanceScore(dayStats, agent.employment_type || 'full_time');
+        const performanceScore = calculatePerformanceScore(
+          dayStats,
+          agent.employment_type || 'full_time',
+          allTargets[agent.employment_type || 'full_time']
+        );
         const dayEarnings = calculateDailyEarnings(dailyPotential, performanceScore, attendanceStatus);
         
         // Track totals

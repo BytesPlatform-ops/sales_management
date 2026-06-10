@@ -33,8 +33,17 @@ export const PERFORMANCE_WEIGHTS = {
   leads: 0,        // 0% - Leads tracked for display only, not scored
 };
 
-// Target values for 100% performance (Step 5 Formula)
-export const DAILY_TARGETS = {
+export interface DailyTargets {
+  calls: number;
+  talk_time_seconds: number;
+  leads: number;
+}
+
+// Default target values for 100% performance (Step 5 Formula).
+// HR can override these from the portal — live values are stored in the
+// performance_targets table (see lib/targets.ts). These constants remain
+// as the fallback when no DB row exists.
+export const DAILY_TARGETS: Record<'full_time' | 'part_time', DailyTargets> = {
   full_time: {
     calls: 150,               // 150 calls for max call score
     talk_time_seconds: 3600,  // 1 hour (3600 seconds) for max talk score
@@ -48,9 +57,11 @@ export const DAILY_TARGETS = {
 };
 
 /**
- * Get daily targets based on employment type
+ * Get daily targets based on employment type (hardcoded defaults).
+ * Server code should prefer getAllTargets() from lib/targets.ts which
+ * reads the HR-configured values from the database.
  */
-export function getDailyTargets(employmentType: 'full_time' | 'part_time' = 'full_time') {
+export function getDailyTargets(employmentType: 'full_time' | 'part_time' = 'full_time'): DailyTargets {
   return DAILY_TARGETS[employmentType];
 }
 
@@ -134,8 +145,12 @@ export interface SalaryBreakdown {
  * - CallScore = (calls / target) * 0.60 (Cap at 0.60)
  * - TalkScore = (seconds / target) * 0.40 (Cap at 0.40)
  */
-export function calculatePerformanceScore(stats: DailyStats, employmentType: 'full_time' | 'part_time' = 'full_time'): number {
-  const targets = getDailyTargets(employmentType);
+export function calculatePerformanceScore(
+  stats: DailyStats,
+  employmentType: 'full_time' | 'part_time' = 'full_time',
+  targetsOverride?: DailyTargets
+): number {
+  const targets = targetsOverride ?? getDailyTargets(employmentType);
   
   // Check which targets are completed (Leads NOT included in performance)
   const callsCompleted = stats.calls_count >= targets.calls;
@@ -237,7 +252,8 @@ export function calculateSalaryBreakdown(
   attendanceRecords: AttendanceRecord[],
   todayStats?: DailyStats,
   todayAttendance?: AttendanceRecord,
-  employmentType: 'full_time' | 'part_time' = 'full_time'
+  employmentType: 'full_time' | 'part_time' = 'full_time',
+  targetsOverride?: DailyTargets
 ): SalaryBreakdown {
   const now = getCurrentDateKarachi();
   const today = formatDateYMD(now);
@@ -276,7 +292,7 @@ export function calculateSalaryBreakdown(
     const attendanceRecord = attendanceMap.get(stats.date);
     const attendance = attendanceRecord?.status || 'absent';
     
-    const performanceScore = calculatePerformanceScore(stats, employmentType);
+    const performanceScore = calculatePerformanceScore(stats, employmentType, targetsOverride);
     const dayEarnings = calculateDailyEarnings(dailyPotential, performanceScore, attendance);
     
     activeEarnings += dayEarnings;
@@ -313,7 +329,7 @@ export function calculateSalaryBreakdown(
   let todayAttendanceMultiplier = 0;
   
   if (todayStats && todayAttendance) {
-    todayPerformanceScore = calculatePerformanceScore(todayStats, employmentType);
+    todayPerformanceScore = calculatePerformanceScore(todayStats, employmentType, targetsOverride);
     todayAttendanceMultiplier = ATTENDANCE_MULTIPLIERS[todayAttendance.status];
     
     todayEarnings = calculateDailyEarnings(

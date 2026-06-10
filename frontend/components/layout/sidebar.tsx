@@ -19,6 +19,7 @@ import {
   FileUp,
   PhoneCall,
   Target,
+  Crosshair,
   FileAudio,
   ClipboardCheck,
   GraduationCap,
@@ -87,6 +88,12 @@ const navItems: NavItem[] = [
     label: 'Agents',
     href: '/hr/agents',
     icon: Users,
+    roles: ['hr'],
+  },
+  {
+    label: 'Targets',
+    href: '/hr/targets',
+    icon: Crosshair,
     roles: ['hr'],
   },
   {

@@ -206,6 +206,18 @@ class ApiClient {
     return this.request<any>(`/hr/daily-stats${query}`);
   }
 
+  // Performance Targets - HR
+  async getTargets() {
+    return this.request<any[]>('/hr/targets');
+  }
+
+  async updateTargets(employmentType: 'full_time' | 'part_time', calls: number, talkTimeSeconds: number, leads: number) {
+    return this.request<any>('/hr/targets', {
+      method: 'PUT',
+      body: JSON.stringify({ employmentType, calls, talkTimeSeconds, leads }),
+    });
+  }
+
   // Agent Leads - HR (fetch approved leads for an agent on a specific date)
   async getAgentLeads(agentId: number, date: string) {
     return this.request<any[]>(`/hr/agent-leads/${agentId}?date=${date}`);

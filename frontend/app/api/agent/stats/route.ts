@@ -6,6 +6,7 @@ import {
   DailyStats,
   AttendanceRecord,
 } from '@/lib/salary-utils';
+import { getAllTargets } from '@/lib/targets';
 import {
   getCurrentDateKarachi,
   formatDateYMD,
@@ -342,6 +343,10 @@ export async function GET(request: NextRequest) {
     const todayAttendance = attendanceRecords.find(a => a.date === shiftTiming.shiftDatePKT) 
       || attendanceRecords.find(a => a.date === today);
 
+    // HR-configurable performance targets (DB-backed, falls back to defaults)
+    const allTargets = await getAllTargets();
+    const agentTargets = allTargets[user.employment_type || 'full_time'];
+
     // Calculate salary breakdown using shift-based stats
     const salaryBreakdown = calculateSalaryBreakdown(
       Number(user.base_salary),
@@ -350,7 +355,8 @@ export async function GET(request: NextRequest) {
       attendanceRecords.filter(a => a.date !== shiftTiming.shiftDatePKT && a.date !== today), // Previous attendance
       shiftBasedTodayStats,
       todayAttendance,
-      user.employment_type || 'full_time'
+      user.employment_type || 'full_time',
+      agentTargets
     );
 
     // Additional context for the frontend
@@ -412,6 +418,13 @@ export async function GET(request: NextRequest) {
           latePolicy: salaryBreakdown.latePolicy,
         },
         
+        // Daily performance targets for this agent (HR-configurable)
+        targets: {
+          calls: agentTargets.calls,
+          talk_time_seconds: agentTargets.talk_time_seconds,
+          leads: agentTargets.leads,
+        },
+
         // Performance summary
         performance: {
           totalCalls: salaryBreakdown.performanceSummary.totalCalls,

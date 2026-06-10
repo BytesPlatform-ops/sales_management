@@ -191,9 +191,9 @@ export default function AgentDashboard() {
   const todayStats = data.today || { calls: 0, talkTime: 0, leads: 0, salesAmount: 0, salesTarget: 0, targetHit: false, performanceScore: 0 };
   const earnedToday = data.salary?.todayEarnings || 0;
   
-  // Get targets based on employment type
+  // Get targets: HR-configured values from the API, falling back to hardcoded defaults
   const employmentType = user?.employment_type || 'full_time';
-  const targets = getDailyTargets(employmentType);
+  const targets = data.targets || getDailyTargets(employmentType);
   
   // Calculate percentages for gauges (capped at 100%)
   const callsPercent = Math.min((todayStats.calls / targets.calls) * 100, 100);

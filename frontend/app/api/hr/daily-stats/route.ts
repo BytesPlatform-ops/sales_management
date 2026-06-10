@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { query } from '@/lib/db';
+import { getAllTargets, AllTargets } from '@/lib/targets';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
@@ -65,14 +66,14 @@ function calculateEstimatedEarnings(
   leadsCount: number,
   attendanceStatus: string | null,
   hrApproved: boolean,
-  employmentType: string = 'full_time'
+  employmentType: string = 'full_time',
+  allTargets: AllTargets
 ): number {
   const dailyPotential = baseSalary / workingDaysInMonth;
-  
-  // Performance targets
-  const targets = employmentType === 'part_time' 
-    ? { calls: 75, talkTime: 1800, leads: 2 }
-    : { calls: 150, talkTime: 3600, leads: 3 };
+
+  // Performance targets (HR-configurable, from performance_targets table)
+  const t = employmentType === 'part_time' ? allTargets.part_time : allTargets.full_time;
+  const targets = { calls: t.calls, talkTime: t.talk_time_seconds, leads: t.leads };
   
   // Check which targets are completed
   const callsCompleted = callsCount >= targets.calls;
@@ -156,6 +157,9 @@ export async function GET(request: NextRequest) {
         workingDaysInMonth++;
       }
     }
+
+    // HR-configurable performance targets (DB-backed, falls back to defaults)
+    const allTargets = await getAllTargets();
 
     // Fetch all active agents with their daily stats, attendance, leads, and sales
     const agentStats = await query<any>(`
@@ -264,7 +268,8 @@ export async function GET(request: NextRequest) {
         leadsApproved || leadsCount,
         agent.attendance_status,
         agent.hr_approved || false,
-        agent.employment_type
+        agent.employment_type,
+        allTargets
       );
       
       // Check if sales target is hit (Golden Ticket)
@@ -307,6 +312,7 @@ export async function GET(request: NextRequest) {
       data: processedStats,
       date: targetDate,
       workingDaysInMonth,
+      targets: allTargets,
     });
   } catch (error) {
     console.error('HR Daily Stats GET error:', error);

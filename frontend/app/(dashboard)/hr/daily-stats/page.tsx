@@ -13,7 +13,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { formatDurationHuman } from '@/lib/date-utils';
-import { DAILY_TARGETS } from '@/lib/salary-utils';
+import { DAILY_TARGETS, DailyTargets } from '@/lib/salary-utils';
 import {
   Calendar,
   RefreshCw,
@@ -172,6 +172,7 @@ export default function HRDailyStatsPage() {
   const [loading, setLoading] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [targets, setTargets] = useState<{ full_time: DailyTargets; part_time: DailyTargets }>(DAILY_TARGETS);
   
   // Modal state for leads
   const [leadsModal, setLeadsModal] = useState<{
@@ -199,6 +200,10 @@ export default function HRDailyStatsPage() {
       // Track what date the API returned
       if ((response as any).date) {
         setApiDate((response as any).date);
+      }
+      // HR-configured targets returned by the API
+      if ((response as any).targets) {
+        setTargets((response as any).targets);
       }
       setLastRefresh(new Date());
     } catch (error) {
@@ -305,9 +310,9 @@ export default function HRDailyStatsPage() {
     return isPast10PM() && agent.callsCount === 0 && selectedDate === getDefaultWorkingDate();
   };
 
-  // Get targets based on employment type
+  // Get targets based on employment type (HR-configured, fetched with daily stats)
   const getAgentTargets = (employmentType: string) => {
-    return employmentType === 'part_time' ? DAILY_TARGETS.part_time : DAILY_TARGETS.full_time;
+    return employmentType === 'part_time' ? targets.part_time : targets.full_time;
   };
 
   return (
