@@ -77,12 +77,14 @@ export default function HRDashboard() {
     agentId: number | null;
     agentName: string;
     durationMinutes: string;
+    mode: 'add' | 'subtract';
     loading: boolean;
   }>({
     isOpen: false,
     agentId: null,
     agentName: '',
     durationMinutes: '',
+    mode: 'add',
     loading: false,
   });
 
@@ -124,12 +126,13 @@ export default function HRDashboard() {
   };
 
   // Open meeting popover
-  const openMeetingPopover = (agentId: number, agentName: string) => {
+  const openMeetingPopover = (agentId: number, agentName: string, mode: 'add' | 'subtract' = 'add') => {
     setMeetingPopover({
       isOpen: true,
       agentId,
       agentName,
       durationMinutes: '',
+      mode,
       loading: false,
     });
   };
@@ -141,6 +144,7 @@ export default function HRDashboard() {
       agentId: null,
       agentName: '',
       durationMinutes: '',
+      mode: 'add',
       loading: false,
     });
   };
@@ -152,12 +156,14 @@ export default function HRDashboard() {
     setMeetingPopover((prev) => ({ ...prev, loading: true }));
 
     try {
-      const durationMinutes = parseFloat(meetingPopover.durationMinutes);
-      if (durationMinutes <= 0) {
+      const magnitude = parseFloat(meetingPopover.durationMinutes);
+      if (!magnitude || magnitude <= 0) {
         showToast('Duration must be greater than 0', 'error');
         setMeetingPopover((prev) => ({ ...prev, loading: false }));
         return;
       }
+      // Negative minutes => subtract
+      const durationMinutes = meetingPopover.mode === 'subtract' ? -magnitude : magnitude;
 
       // Always use today's date for meeting time
       const todayDate = getDefaultWorkingDate();
@@ -170,8 +176,8 @@ export default function HRDashboard() {
       );
 
       if (response?.status === 'success') {
-        // Show success toast
-        showToast(`${durationMinutes} mins added to ${meetingPopover.agentName}'s shift`, 'success');
+        const verb = meetingPopover.mode === 'subtract' ? 'subtracted from' : 'added to';
+        showToast(`${magnitude} mins ${verb} ${meetingPopover.agentName}'s shift`, 'success');
         // Refresh data to show updated talk time
         await fetchData();
         closeMeetingPopover();
@@ -357,14 +363,24 @@ export default function HRDashboard() {
                     </span>
                   </TableCell>
                   <TableCell className="text-right">
-                    <button
-                      onClick={() => openMeetingPopover(agent.id, agent.full_name)}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg transition-colors text-sm font-medium"
-                      title="Add meeting time"
-                    >
-                      <Plus className="h-4 w-4" />
-                      Add
-                    </button>
+                    <div className="inline-flex items-center gap-2">
+                      <button
+                        onClick={() => openMeetingPopover(agent.id, agent.full_name, 'add')}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg transition-colors text-sm font-medium"
+                        title="Add meeting time"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Add
+                      </button>
+                      <button
+                        onClick={() => openMeetingPopover(agent.id, agent.full_name, 'subtract')}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors text-sm font-medium"
+                        title="Subtract meeting time"
+                      >
+                        <span className="text-base leading-none">−</span>
+                        Subtract
+                      </button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -389,7 +405,7 @@ export default function HRDashboard() {
             <div className="border-b p-4 flex items-center justify-between">
               <div>
                 <h3 className="font-semibold text-gray-900">
-                  Add Meeting Time
+                  {meetingPopover.mode === 'subtract' ? 'Subtract Meeting Time' : 'Add Meeting Time'}
                 </h3>
                 <p className="text-sm text-gray-500">
                   {meetingPopover.agentName}

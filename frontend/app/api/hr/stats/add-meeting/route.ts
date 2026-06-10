@@ -47,8 +47,8 @@ export async function POST(request: NextRequest) {
     const body: AddMeetingRequest = await request.json();
     const { agentId, date, durationMinutes, reason } = body;
 
-    // Validate inputs
-    if (!agentId || !date || !durationMinutes || durationMinutes <= 0) {
+    // Validate inputs. durationMinutes may be negative (subtract) — reject only 0/missing.
+    if (!agentId || !date || !durationMinutes) {
       return NextResponse.json(
         { status: 'error', message: 'Invalid agentId, date, or durationMinutes' },
         { status: 400 }
@@ -63,8 +63,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Convert minutes to seconds
+    // Convert minutes to seconds (may be negative for a subtraction)
     const durationSeconds = Math.round(durationMinutes * 60);
+    // For a brand-new record you can't subtract from nothing — floor at 0.
+    const seedSeconds = Math.max(0, durationSeconds);
 
     // Start transaction: get or create daily_stats record, then update it
     const rows = await query(
@@ -89,12 +91,12 @@ export async function POST(request: NextRequest) {
         `INSERT INTO daily_stats (user_id, date, talk_time_seconds, meeting_seconds)
          VALUES ($1, $2, $3, $4)
          RETURNING id, talk_time_seconds, meeting_seconds`,
-        [agentId, date, durationSeconds, durationSeconds]
+        [agentId, date, seedSeconds, seedSeconds]
       );
 
       dailyStatId = (insertResult[0] as any).id;
-      previousTalkTime = durationSeconds;
-      previousMeetingTime = durationSeconds;
+      previousTalkTime = seedSeconds;
+      previousMeetingTime = seedSeconds;
 
       console.log(`Created new daily_stats record for agent ${agentId} on ${date}`);
       return NextResponse.json({
@@ -115,8 +117,8 @@ export async function POST(request: NextRequest) {
     // Update existing record: increment both meeting_seconds and talk_time_seconds
     const updateResult = await query(
       `UPDATE daily_stats
-       SET meeting_seconds = meeting_seconds + $1,
-           talk_time_seconds = talk_time_seconds + $2,
+       SET meeting_seconds = GREATEST(0, meeting_seconds + $1),
+           talk_time_seconds = GREATEST(0, talk_time_seconds + $2),
            updated_at = NOW()
        WHERE id = $3
        RETURNING talk_time_seconds, meeting_seconds`,
