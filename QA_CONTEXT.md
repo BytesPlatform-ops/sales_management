@@ -61,17 +61,23 @@ DB access from repo: `node -e` with `pg` from `/Users/bytes/Desktop/3cx/node_mod
 4. One failed cron run ≠ disabled (fires next schedule). Idempotent; data never lost (stays `transcribed`). Failed night = re-trigger with `?date=`.
 
 ## Current data state
-- **2026-06-05**: re-graded with **v3** (dual). Scores ~3.1–3.4. ✅
-- **2026-06-10**: graded with OLD **v2** (single rubric) — short cold calls unfairly scored on discovery metrics. **NEEDS v3 re-grade.**
+- **2026-06-05**: graded with **v3.0** (dual). Scores ~3.1–3.4. (Could re-grade to v3.1 for consistency.)
+- **2026-06-10**: re-graded with **v3.1** ✅ — cold avg 4.08 (range 3.0–7.17), discovery avg 2.76. All 4 agents (incl. Murtaza ext 11) now present. Booked-meeting cold calls correctly top out ~6.5–7.2. 367 short calls bucketed too_short.
 - Demo/seed data already purged.
 
+## rubric_v3.1 changes (live as of commit e169286)
+- **Cold-call goal folded into Overall**: +2.5 if meeting booked, +1 if asked (cold); +1.5 if booked (discovery). Booleans `explicit_ask`/`firm_future_commit` were previously ignored by the score.
+- **Rapport re-anchored**: courteous+professional = 5-6 (was anchoring to 3). Prompt framing "strict" → "fair but rigorous". Scores now spread instead of clustering 2-4.
+- **MIN_DURATION_SEC 30 → 50**: instant-rejection hang-ups become not_evaluable instead of 0.5/10.
+- **Dashboard** branches on `scorecard.rubric` (cold vs discovery), removed dead chips (active_summarization/competitor_positioning/talk_balance), table shows shared dims (Opener/Objection) + "low n" badge when graded < 3.
+
 ## Open follow-ups (next session)
-1. **Re-grade 06-10 (and any v2 shifts) with v3** — reset evals + drain `daily-eval?date=2026-06-10`.
-2. **Blueprint-sync cron services** so scheduled runs use the UA fix.
-3. **Dashboard `/hr/qa-daily`**: title is hardcoded "rubric v2" (fix), and it renders the fixed v2 field set — should branch on `scorecard.rubric` to cleanly show cold vs discovery cards (cold cards currently show discovery chips as "—").
-4. **Calibration**: raise `too_short` cutoff 30s → ~45–60s (so 35s instant-rejections aren't scored). In `daily-eval` `MIN_DURATION_SEC`.
-5. Optional: 07:00 safety-net daily-eval cron + look-back auto-catch-up (so a failed night self-heals).
-6. Optional: re-enable diarization on a 4GB worker for talk_ratio + speaker-attributed scoring.
+1. ~~Re-grade 06-10 with v3~~ ✅ done (v3.1, 2026-06-12). Optionally re-grade 06-05 to v3.1 for consistency.
+2. ~~Dashboard branch on rubric + raise cutoff~~ ✅ done (v3.1).
+3. **Blueprint-sync cron services** so scheduled runs use the Cloudflare-UA fix (still pending — manual drains work, scheduled ones may 429).
+4. Optional: 07:00 safety-net daily-eval cron + look-back auto-catch-up (so a failed night self-heals).
+5. Optional: re-enable diarization on a 4GB worker for talk_ratio + speaker-attributed scoring.
+6. Watch: 06-10 had 369 calls that had never been drained — confirm nightly daily-eval is actually draining to remaining:0 each night (cron may need the drain-loop, not a single hit).
 
 ## Assessment of current scores (honest)
 Low scores (~2–3/10) are **substantively accurate** — agents use vague scripted openers, don't acknowledge objections, rarely ask for a meeting. Dual rubric makes them **fair** (doesn't penalize cold calls for missing deep discovery) but doesn't inflate genuinely weak calls. 06-10 looks extra-low only because it's still on the old single rubric.
