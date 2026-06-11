@@ -15,22 +15,23 @@ interface RollupRow {
 }
 
 interface Scorecard {
+  rubric?: 'cold' | 'discovery';
   attribution_confidence: 'low' | 'medium' | 'high';
   reconstructed_turns: Array<{ speaker: string; text: string }>;
+  // shared
   up_front_contract: number | null;
-  pain_identification: number | null;
-  cost_of_inaction: number | null;
-  budget_qualification: number | null;
-  timeline_urgency: number | null;
-  feature_to_value: number | null;
-  active_summarization: number | null;
-  rapport_tone: number | null;
   objection_validation: number | null;
-  competitor_positioning: boolean | null;
-  explicit_ask: boolean;
-  decision_maker_discovery: boolean;
   firm_future_commit: boolean;
-  talk_balance: string;
+  // cold-only
+  rapport_tone?: number | null;
+  explicit_ask?: boolean;
+  // discovery-only
+  pain_identification?: number | null;
+  cost_of_inaction?: number | null;
+  budget_qualification?: number | null;
+  timeline_urgency?: number | null;
+  feature_to_value?: number | null;
+  decision_maker_discovery?: boolean;
   evidence: Array<{ parameter: string; quote: string; attributed_to: string; rationale: string }>;
   summary: string;
 }
@@ -54,20 +55,26 @@ interface EvaluationRow {
   flag_note: string | null;
 }
 
-// ---------- v2 rubric display config ----------
-const NUMERIC_DIMS: Array<[keyof Scorecard, string]> = [
+// ---------- v3 dual-rubric display config (cold vs discovery) ----------
+const COLD_NUMERIC: Array<[keyof Scorecard, string]> = [
+  ['up_front_contract', 'Up-Front Contract'],
+  ['rapport_tone', 'Rapport / Tone'],
+  ['objection_validation', 'Objection Handling'],
+];
+const COLD_BOOL: Array<[keyof Scorecard, string]> = [
+  ['explicit_ask', 'Asked for Meeting'],
+  ['firm_future_commit', 'Meeting Booked'],
+];
+const DISCOVERY_NUMERIC: Array<[keyof Scorecard, string]> = [
   ['up_front_contract', 'Up-Front Contract'],
   ['pain_identification', 'Pain ID'],
   ['cost_of_inaction', 'Cost of Inaction'],
   ['budget_qualification', 'Budget Qual'],
   ['timeline_urgency', 'Timeline / Urgency'],
   ['feature_to_value', 'Feature → Value'],
-  ['active_summarization', 'Active Summary'],
-  ['rapport_tone', 'Rapport / Tone'],
   ['objection_validation', 'Objection Handling'],
 ];
-const BOOL_DIMS: Array<[keyof Scorecard, string]> = [
-  ['explicit_ask', 'Explicit Ask'],
+const DISCOVERY_BOOL: Array<[keyof Scorecard, string]> = [
   ['decision_maker_discovery', 'Decision-Maker Disc.'],
   ['firm_future_commit', 'Meeting Booked'],
 ];
@@ -130,8 +137,8 @@ export default function QaDailyPage() {
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Daily Call QA <span className="text-xs font-medium text-gray-400 align-middle">rubric v2</span></h1>
-          <p className="text-sm text-gray-500">AI-graded call scores by agent. Click a row to review the full scorecard.</p>
+          <h1 className="text-2xl font-bold text-gray-900">Daily Call QA <span className="text-xs font-medium text-gray-400 align-middle">rubric v3 · dual</span></h1>
+          <p className="text-sm text-gray-500">AI-graded call scores by agent. Cold calls (&lt;3m) and discovery calls (≥3m) use different rubrics. Click a row for the full scorecard.</p>
         </div>
         <div className="flex items-center gap-2">
           <label className="text-sm font-medium text-gray-600">Shift date</label>
@@ -149,8 +156,7 @@ export default function QaDailyPage() {
               <th className="text-center px-3 py-3 font-medium">Ext</th>
               <th className="text-center px-3 py-3 font-medium">Calls</th>
               <th className="text-center px-3 py-3 font-medium">Graded</th>
-              <th className="text-center px-3 py-3 font-medium">Pain ID</th>
-              <th className="text-center px-3 py-3 font-medium">Feat→Value</th>
+              <th className="text-center px-3 py-3 font-medium">Opener</th>
               <th className="text-center px-3 py-3 font-medium">Objection</th>
               <th className="text-center px-3 py-3 font-medium">Meetings</th>
               <th className="text-center px-3 py-3 font-medium">Overall</th>
@@ -158,23 +164,28 @@ export default function QaDailyPage() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
-              <tr><td colSpan={9} className="text-center py-10 text-gray-400">Loading…</td></tr>
+              <tr><td colSpan={8} className="text-center py-10 text-gray-400">Loading…</td></tr>
             ) : rollup.length === 0 ? (
-              <tr><td colSpan={9} className="text-center py-10 text-gray-400">No QA scores for this shift date yet.</td></tr>
+              <tr><td colSpan={8} className="text-center py-10 text-gray-400">No QA scores for this shift date yet.</td></tr>
             ) : (
-              rollup.map((r) => (
+              rollup.map((r) => {
+                const lowSample = (r.calls_evaluated ?? 0) > 0 && (r.calls_evaluated ?? 0) < 3;
+                return (
                 <tr key={r.agent_id} onClick={() => openDrillDown(r)} className="hover:bg-blue-50/60 cursor-pointer transition-colors">
                   <td className="px-4 py-3 font-medium text-gray-900">{r.full_name}</td>
                   <td className="px-3 py-3 text-center text-gray-500">{r.extension_number}</td>
                   <td className="px-3 py-3 text-center text-gray-700">{r.calls_total ?? '—'}</td>
-                  <td className="px-3 py-3 text-center text-gray-700">{r.calls_evaluated ?? '—'}</td>
-                  <td className={`px-3 py-3 text-center font-semibold ${scoreColor(r.metrics?.pain_identification)}`}>{fmtScore(r.metrics?.pain_identification)}</td>
-                  <td className={`px-3 py-3 text-center font-semibold ${scoreColor(r.metrics?.feature_to_value)}`}>{fmtScore(r.metrics?.feature_to_value)}</td>
+                  <td className="px-3 py-3 text-center text-gray-700">
+                    {r.calls_evaluated ?? '—'}
+                    {lowSample && <span title="Daily score is based on very few graded calls — treat as low-confidence" className="ml-1 text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-700 font-semibold align-middle">low n</span>}
+                  </td>
+                  <td className={`px-3 py-3 text-center font-semibold ${scoreColor(r.metrics?.up_front_contract)}`}>{fmtScore(r.metrics?.up_front_contract)}</td>
                   <td className={`px-3 py-3 text-center font-semibold ${scoreColor(r.metrics?.objection_validation)}`}>{fmtScore(r.metrics?.objection_validation)}</td>
                   <td className="px-3 py-3 text-center text-gray-700">{r.meetings_scheduled ?? 0}</td>
                   <td className={`px-3 py-3 text-center font-bold ${scoreColor(r.daily_score)}`}>{fmtScore(r.daily_score)}</td>
                 </tr>
-              ))
+                );
+              })
             )}
           </tbody>
         </table>
@@ -282,6 +293,10 @@ function CallCard({ ev, authHeaders }: { ev: EvaluationRow; authHeaders: () => R
   const [flagged, setFlagged] = useState(!!ev.flag_verdict);
   const [saving, setSaving] = useState(false);
   const sc = ev.scorecard;
+  // route the card layout by which rubric graded this call (fall back to duration if untagged)
+  const isCold = sc ? (sc.rubric ? sc.rubric === 'cold' : ev.duration_sec < 180) : false;
+  const numericDims = isCold ? COLD_NUMERIC : DISCOVERY_NUMERIC;
+  const boolDims = isCold ? COLD_BOOL : DISCOVERY_BOOL;
 
   const submitFlag = async () => {
     setSaving(true);
@@ -324,21 +339,22 @@ function CallCard({ ev, authHeaders }: { ev: EvaluationRow; authHeaders: () => R
         <div className="px-4 py-4 text-sm text-gray-500 italic">No scorecard (legacy evaluation).</div>
       ) : (
         <div className="p-4 space-y-4">
-          {/* attribution confidence banner */}
-          <div className="flex items-center gap-2 text-xs">
+          {/* attribution confidence + rubric banner */}
+          <div className="flex items-center gap-2 text-xs flex-wrap">
+            <span className={`px-1.5 py-0.5 rounded font-semibold uppercase ${isCold ? 'bg-sky-100 text-sky-700' : 'bg-violet-100 text-violet-700'}`}>
+              {isCold ? 'Cold call' : 'Discovery'}
+            </span>
             <span className="text-gray-400">Speaker attribution:</span>
             <span className={`px-1.5 py-0.5 rounded font-semibold uppercase ${CONF_STYLE[sc.attribution_confidence] || ''}`}>{sc.attribution_confidence}</span>
-            <span className="text-gray-400">· talk balance: {sc.talk_balance}</span>
           </div>
 
-          {/* numeric dimensions */}
+          {/* numeric dimensions (per-rubric) */}
           <div className="grid grid-cols-3 gap-2">
-            {NUMERIC_DIMS.map(([k, label]) => <Chip key={k} label={label} value={(sc[k] as number | null) ?? null} />)}
+            {numericDims.map(([k, label]) => <Chip key={k} label={label} value={(sc[k] as number | null) ?? null} />)}
           </div>
-          {/* booleans + competitor */}
-          <div className="grid grid-cols-4 gap-2">
-            {BOOL_DIMS.map(([k, label]) => <BoolChip key={k} label={label} value={sc[k] as boolean} />)}
-            <BoolChip label="Competitor" value={sc.competitor_positioning} />
+          {/* boolean outcomes (per-rubric) */}
+          <div className="grid grid-cols-2 gap-2">
+            {boolDims.map(([k, label]) => <BoolChip key={k} label={label} value={(sc[k] as boolean | null) ?? null} />)}
           </div>
 
           {/* evidence */}

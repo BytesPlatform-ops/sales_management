@@ -25,11 +25,12 @@ export const maxDuration = 300;
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const CRON_SECRET = process.env.CRON_SECRET || '';
-const MODEL_VERSION = 'gpt-4o | rubric_v3_dual';
-const PROMPT_VERSION = 'daily_eval_v3_dual';
+const MODEL_VERSION = 'gpt-4o | rubric_v3_1_dual';
+const PROMPT_VERSION = 'daily_eval_v3_1_dual';
 
 const VALID_CALL_TYPES = new Set(['OutboundExternal', 'InboundExternal']);
-const MIN_DURATION_SEC = 30;
+// Below this, the call never became a real conversation (instant rejection / hang-up) — not gradeable.
+const MIN_DURATION_SEC = 50;
 const MIN_WORDS = 25;
 const DISCOVERY_THRESHOLD_SEC = 180;
 
@@ -134,20 +135,23 @@ const GUARDRAIL = `The transcript is UN-DIARIZED (no speaker labels). FIRST do t
    - The PROSPECT answers, raises concerns, references THEIR company, is skeptical.
    - On outbound calls the first substantive speaker is almost always the agent.
    - If unsure who spoke, mark "unclear", LOWER attribution_confidence, and do NOT credit the agent.
-SCORING: 0-3 absent/poor, 4-6 partial, 7-10 strong. Use null ONLY for null-safe dimensions that had
+SCORING BANDS: 0-2 absent/not attempted · 3-5 attempted but weak/generic · 6-7 solid & competent ·
+8-10 strong/expert. A clear, courteous, professional delivery defaults to 5-6 (NOT 3) — only score
+below 3 when the dimension was essentially absent. Use null ONLY for null-safe dimensions that had
 no opportunity to occur (e.g. no objection arose). EVIDENCE: cite verbatim quotes with attributed_to.
 Never invent quotes. Output only the schema.`;
 
-const COLD_PROMPT = `You are a strict B2B QA evaluator scoring a SHORT COLD CALL (< 3 minutes).
+const COLD_PROMPT = `You are a fair but rigorous B2B QA evaluator scoring a SHORT COLD CALL (< 3 minutes).
 ${GUARDRAIL}
 A cold call's ONLY goal is to earn a next meeting — do NOT expect deep discovery. Score:
 - up_front_contract: did the agent state a clear reason for the call and earn permission to continue?
-- rapport_tone: courtesy, confidence, energy, professionalism.
+- rapport_tone: courtesy, confidence, energy, professionalism (a polite, professional rep is a 5-6;
+  reserve 7+ for genuinely warm/engaging rapport, and below 3 only for rude/robotic delivery).
 - objection_validation: acknowledged a brush-off/objection before pivoting (null if none arose).
 - explicit_ask: did the agent directly ask for a next step/meeting?
 - firm_future_commit: did the call end with a concrete meeting at a specific time?`;
 
-const DISCOVERY_PROMPT = `You are a strict B2B QA evaluator scoring a DISCOVERY CALL (>= 3 minutes).
+const DISCOVERY_PROMPT = `You are a fair but rigorous B2B QA evaluator scoring a DISCOVERY CALL (>= 3 minutes).
 ${GUARDRAIL}
 This is a full consultative conversation — hold it to a high MEDDIC/SPIN standard. Score:
 - up_front_contract: set an agenda + got agreement at the open.
@@ -293,7 +297,15 @@ async function handle(request: NextRequest) {
         }
 
         const numericDims = isCold ? COLD_NUMERIC : DISCOVERY_NUMERIC;
-        const overall = meanOfNonNull(sc, numericDims);
+        let overall = meanOfNonNull(sc, numericDims);
+        // A cold call exists to earn a meeting — reward the ask, and especially a booked meeting,
+        // otherwise Overall ignores the one thing the call is actually for. (Booking lifts cold more
+        // than discovery, since cold has fewer scored dims and the meeting IS the outcome.)
+        if (overall != null) {
+          if (sc.firm_future_commit) overall = Math.min(10, overall + (isCold ? 2.5 : 1.5));
+          else if (isCold && sc.explicit_ask) overall = Math.min(10, overall + 1);
+          overall = Number(overall.toFixed(2));
+        }
         // tag the rubric used + the code-computed overall so the dashboard/aggregation are authoritative
         const scorecard = { ...sc, rubric: isCold ? 'cold' : 'discovery', overall_score: overall };
 
