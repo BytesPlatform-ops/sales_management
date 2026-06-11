@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Scorecard, COLD_NUMERIC, COLD_BOOL, DISCOVERY_NUMERIC, DISCOVERY_BOOL,
-  Chip, BoolChip, RubricLegend, fmtScore, fmtDuration, fmtTime, scoreColor, CONF_STYLE,
+  Chip, BoolChip, RubricLegend, CoachingBlock, fmtScore, fmtDuration, fmtTime, scoreColor, CONF_STYLE,
 } from '@/components/qa/scorecard-ui';
 
 // ---------- types ----------
@@ -213,6 +213,9 @@ function AgentCallCard({ ev }: { ev: EvaluationRow }) {
 
         {/* summary */}
         {sc.summary && <p className="text-xs text-gray-600 bg-gray-50 rounded p-2">{sc.summary}</p>}
+
+        {/* coach's notes — say-this-instead rewrites + next-call focus */}
+        <CoachingBlock coaching={sc.coaching} />
 
         {/* attributed dialogue toggle (not the raw transcript) */}
         {sc.reconstructed_turns?.length > 0 && (

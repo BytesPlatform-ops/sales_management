@@ -28,6 +28,12 @@ export interface Scorecard {
   decision_maker_discovery?: boolean;
   evidence: Array<{ parameter: string; quote: string; attributed_to: string; rationale: string }>;
   summary: string;
+  coaching?: {
+    did_well: string;
+    key_fix: string;
+    say_this_instead: Array<{ moment: string; rewrite: string; why: string }>;
+    next_call_focus: string;
+  };
 }
 
 // ---------- per-rubric dimension config ----------
@@ -86,6 +92,53 @@ export function BoolChip({ label, value }: { label: string; value: boolean | nul
     <div className="rounded-lg border border-gray-100 p-2 text-center">
       <div className="text-[10px] uppercase text-gray-400 leading-tight">{label}</div>
       <div className={`text-sm font-bold ${col}`}>{txt}</div>
+    </div>
+  );
+}
+
+// ============================================================
+// Coach's notes — per-call actionable feedback (did well / key fix /
+// say-this-instead rewrites / next-call focus). Shared by HR + agent views.
+// ============================================================
+export function CoachingBlock({ coaching }: { coaching?: Scorecard['coaching'] }) {
+  if (!coaching) return null;
+  const rewrites = coaching.say_this_instead || [];
+  return (
+    <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-3 space-y-3">
+      <div className="text-[10px] uppercase tracking-wide text-emerald-700 font-semibold">Coach&apos;s notes</div>
+
+      {coaching.did_well && (
+        <div className="text-sm">
+          <span className="font-semibold text-emerald-700">✓ Did well: </span>
+          <span className="text-gray-700">{coaching.did_well}</span>
+        </div>
+      )}
+      {coaching.key_fix && (
+        <div className="text-sm">
+          <span className="font-semibold text-amber-700">▲ Biggest fix: </span>
+          <span className="text-gray-700">{coaching.key_fix}</span>
+        </div>
+      )}
+
+      {rewrites.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Say this instead</div>
+          {rewrites.map((r, i) => (
+            <div key={i} className="rounded-lg bg-white border border-gray-100 p-2.5 space-y-1">
+              <p className="text-xs text-gray-500"><span className="text-red-400 font-medium">You said:</span> <span className="italic">“{r.moment}”</span></p>
+              <p className="text-sm text-gray-800"><span className="text-emerald-600 font-medium">Try:</span> <span className="font-medium">“{r.rewrite}”</span></p>
+              <p className="text-[11px] text-gray-500">{r.why}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {coaching.next_call_focus && (
+        <div className="text-sm bg-emerald-100/60 rounded-lg px-3 py-2">
+          <span className="font-semibold text-emerald-800">🎯 Next call: </span>
+          <span className="text-gray-700">{coaching.next_call_focus}</span>
+        </div>
+      )}
     </div>
   );
 }

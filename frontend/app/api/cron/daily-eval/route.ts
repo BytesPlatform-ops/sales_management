@@ -25,8 +25,8 @@ export const maxDuration = 300;
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const CRON_SECRET = process.env.CRON_SECRET || '';
-const MODEL_VERSION = 'gpt-4o | rubric_v3_1_dual';
-const PROMPT_VERSION = 'daily_eval_v3_1_dual';
+const MODEL_VERSION = 'gpt-4o | rubric_v3_2_dual';
+const PROMPT_VERSION = 'daily_eval_v3_2_coach';
 
 const VALID_CALL_TYPES = new Set(['OutboundExternal', 'InboundExternal']);
 // Below this, the call never became a real conversation (instant rejection / hang-up) — not gradeable.
@@ -72,6 +72,35 @@ const EVIDENCE = {
 };
 const score10 = { type: ['integer', 'null'], minimum: 0, maximum: 10 } as const;
 
+// ---------- coaching fragment (per-call actionable feedback, both rubrics) ----------
+const COACHING = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['did_well', 'key_fix', 'say_this_instead', 'next_call_focus'],
+  properties: {
+    // the single best real thing the agent did, quoting the moment. Never invented praise.
+    did_well: { type: 'string' },
+    // the ONE highest-leverage change — name the behavior and its cost, never personality.
+    key_fix: { type: 'string' },
+    // 1-2 weak->strong rewrites. `moment` MUST be quoted from the transcript (never invented).
+    say_this_instead: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['moment', 'rewrite', 'why'],
+        properties: {
+          moment: { type: 'string' },   // what the agent actually said
+          rewrite: { type: 'string' },  // a stronger line in the rep's natural spoken register
+          why: { type: 'string' },      // one-sentence mechanism
+        },
+      },
+    },
+    // one short line — the only thing to remember on the next dial.
+    next_call_focus: { type: 'string' },
+  },
+};
+
 // ---------- Schema A: COLD CALL ----------
 const COLD_SCHEMA = {
   name: 'cold_call_scorecard',
@@ -80,7 +109,7 @@ const COLD_SCHEMA = {
     type: 'object', additionalProperties: false,
     required: ['disposition', 'reconstructed_turns', 'attribution_confidence',
       'up_front_contract', 'rapport_tone', 'objection_validation',
-      'explicit_ask', 'firm_future_commit', 'evidence', 'summary'],
+      'explicit_ask', 'firm_future_commit', 'evidence', 'summary', 'coaching'],
     properties: {
       disposition: { type: 'string', enum: DISPOSITION_ENUM },
       reconstructed_turns: RECONSTRUCTED_TURNS,
@@ -92,6 +121,7 @@ const COLD_SCHEMA = {
       firm_future_commit: { type: 'boolean' },
       evidence: EVIDENCE,
       summary: { type: 'string' },
+      coaching: COACHING,
     },
   },
 };
@@ -105,7 +135,7 @@ const DISCOVERY_SCHEMA = {
     required: ['disposition', 'reconstructed_turns', 'attribution_confidence',
       'up_front_contract', 'pain_identification', 'cost_of_inaction',
       'budget_qualification', 'timeline_urgency', 'feature_to_value', 'objection_validation',
-      'decision_maker_discovery', 'firm_future_commit', 'evidence', 'summary'],
+      'decision_maker_discovery', 'firm_future_commit', 'evidence', 'summary', 'coaching'],
     properties: {
       disposition: { type: 'string', enum: DISPOSITION_ENUM },
       reconstructed_turns: RECONSTRUCTED_TURNS,
@@ -121,6 +151,7 @@ const DISCOVERY_SCHEMA = {
       firm_future_commit: { type: 'boolean' },
       evidence: EVIDENCE,
       summary: { type: 'string' },
+      coaching: COACHING,
     },
   },
 };
@@ -139,29 +170,65 @@ SCORING BANDS: 0-2 absent/not attempted · 3-5 attempted but weak/generic · 6-7
 8-10 strong/expert. A clear, courteous, professional delivery defaults to 5-6 (NOT 3) — only score
 below 3 when the dimension was essentially absent. Use null ONLY for null-safe dimensions that had
 no opportunity to occur (e.g. no objection arose). EVIDENCE: cite verbatim quotes with attributed_to.
-Never invent quotes. Output only the schema.`;
+Never invent quotes.
 
-const COLD_PROMPT = `You are a fair but rigorous B2B QA evaluator scoring a SHORT COLD CALL (< 3 minutes).
+COACHING (the \`coaching\` object) — write like a sharp VP of Sales who has run 10,000 calls, NOT a
+chatbot. The rep should be able to act on it on their very next dial:
+- did_well: the single best REAL thing the agent did, quoting the moment. On a weak call, find the
+  least-bad real thing — never invent praise, never "great job / good energy".
+- key_fix: the ONE highest-leverage change. Name the BEHAVIOR and its cost ("you pitched before you
+  found a problem, so your value had nothing to land on"). Behavior, never personality. Pick exactly one.
+- say_this_instead: 1-2 rewrites. \`moment\` = what the agent ACTUALLY said (quote the transcript,
+  never invent). \`rewrite\` = a stronger line in the rep's natural SPOKEN register (not corporate).
+  \`why\` = one sentence on the mechanism. Strip minimizers ("just", "real quick", "sorry to bother").
+- next_call_focus: one short line — the only thing they must remember next time.
+Be honest over flattering, specific over generic. Banned: "build rapport", "be more confident",
+"improve discovery" with no concrete line. If not a connected_conversation, keep coaching to one line.
+Output only the schema.`;
+
+const COLD_PROMPT = `You are a seasoned B2B cold-calling coach grading a SHORT COLD CALL (< 3 minutes). Your
+standards come from real top-performer data (Gong's 300M-call analysis), Josh Braun, Jeb Blount and
+30MPC. A cold call's ONLY job is to earn a next meeting — do NOT expect deep discovery.
 ${GUARDRAIL}
-A cold call's ONLY goal is to earn a next meeting — do NOT expect deep discovery. Score:
-- up_front_contract: did the agent state a clear reason for the call and earn permission to continue?
-- rapport_tone: courtesy, confidence, energy, professionalism (a polite, professional rep is a 5-6;
-  reserve 7+ for genuinely warm/engaging rapport, and below 3 only for rude/robotic delivery).
-- objection_validation: acknowledged a brush-off/objection before pivoting (null if none arose).
-- explicit_ask: did the agent directly ask for a next step/meeting?
+Score each 0-10:
+- up_front_contract (the opener + reason for calling): did the agent earn the right to the next 30
+  seconds with a clear, honest reason? REWARD: honest/permission openers ("I know I'm an interruption
+  — got 30 seconds?"), a specific trigger, a problem-led reason for the call. PENALIZE hard: the
+  status-lowering "did I catch you at a bad time?" (lowest-converting opener there is), fake rapport
+  ("how's your day going?"), and buzzword/feature-dump opens ("we're a leading all-in-one platform…")
+  with no problem named.
+- rapport_tone: courtesy, calm confidence, unhurried pace, control of the call. Polite & professional
+  = 5-6; 7+ = genuinely warm/disarming; below 3 only for rude/robotic/rushed/needy delivery.
+- objection_validation: when the prospect pushed back, did the agent ACKNOWLEDGE it before pivoting —
+  a label ("sounds like the timing's rough"), a mirror, or "totally fair"? REWARD acknowledge -> one
+  exploring question -> ask. PENALIZE steamrolling, ignoring it, pitching harder, arguing, or the
+  dated/manipulative "feel-felt-found". null if no objection arose.
+- explicit_ask: did the agent directly ask for a SPECIFIC next step (assumptive, a real day/time)? A
+  vague "can I send you some info?" is NOT a real ask.
 - firm_future_commit: did the call end with a concrete meeting at a specific time?`;
 
-const DISCOVERY_PROMPT = `You are a fair but rigorous B2B QA evaluator scoring a DISCOVERY CALL (>= 3 minutes).
+const DISCOVERY_PROMPT = `You are a seasoned B2B discovery coach grading a DISCOVERY CALL (>= 3 minutes),
+to the standard of SPIN Selling, the Sandler pain funnel, MEDDIC and Gong's discovery data. Hold it to
+a high consultative bar. GOLDEN RULE: a great rep develops and QUANTIFIES the problem BEFORE pitching
+anything — premature pitching is the cardinal sin.
 ${GUARDRAIL}
-This is a full consultative conversation — hold it to a high MEDDIC/SPIN standard. Score:
-- up_front_contract: set an agenda + got agreement at the open.
-- pain_identification: uncovered a specific, ideally quantified problem.
-- cost_of_inaction: explored consequences of not solving (null if never reached).
-- budget_qualification: established budget range/authority (null if not broached).
-- timeline_urgency: established a decision/implementation timeframe (null if not discussed).
-- feature_to_value: mapped capabilities to the prospect's STATED pain (0-3 = feature-dump/monologue).
-- objection_validation: acknowledged objections before pivoting (null if none arose).
-- decision_maker_discovery: mapped the buying process / other decision-makers?
+Score each 0-10:
+- up_front_contract: set a clear agenda and got the prospect's agreement at the open.
+- pain_identification: uncovered a SPECIFIC, ideally quantified problem, moving surface -> business
+  impact -> personal stake. A vague "we want more leads" with no numbers and no follow-up = 3-5;
+  a problem nailed down to a number and an owner = 7+.
+- cost_of_inaction (THE highest-leverage discovery skill): did the agent make the problem expensive
+  and urgent — "what does that cost you per month?", "what happens if nothing changes?" — ideally
+  getting the PROSPECT to say the number? null if never reached.
+- budget_qualification: budget broached via value/range framing, not a crass "what's your budget?"
+  (null if not broached).
+- timeline_urgency: a real compelling event / why-now established (null if not discussed).
+- feature_to_value: was every capability tied back to a pain the prospect ALREADY STATED
+  ("…which means for you, that downtime you mentioned stops")? An untethered feature list or a
+  product monologue = 0-3.
+- objection_validation: acknowledged concerns before pivoting — label/mirror, not steamrolling or
+  feel-felt-found (null if none arose).
+- decision_maker_discovery: mapped the buying process / other stakeholders / economic buyer?
 - firm_future_commit: ended with a concrete next step at a specific date/time?`;
 
 // ---------- helpers ----------

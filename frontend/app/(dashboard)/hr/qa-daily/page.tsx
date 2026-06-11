@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { RubricLegend } from '@/components/qa/scorecard-ui';
+import { RubricLegend, CoachingBlock } from '@/components/qa/scorecard-ui';
 
 // ---------- types ----------
 interface RollupRow {
@@ -380,6 +380,9 @@ function CallCard({ ev, authHeaders }: { ev: EvaluationRow; authHeaders: () => R
 
           {/* summary */}
           {sc.summary && <p className="text-xs text-gray-600 bg-gray-50 rounded p-2">{sc.summary}</p>}
+
+          {/* coach's notes — say-this-instead rewrites + next-call focus */}
+          <CoachingBlock coaching={(sc as any).coaching} />
 
           {/* actions */}
           <div className="flex items-center gap-3 pt-1 border-t border-gray-100">
