@@ -67,6 +67,12 @@ const navItems: NavItem[] = [
     roles: ['agent'],
   },
   {
+    label: 'Daily Report',
+    href: '/agent/daily-report',
+    icon: ClipboardCheck,
+    roles: ['agent'],
+  },
+  {
     label: 'My Coaching',
     href: '/agent/coaching',
     icon: GraduationCap,
