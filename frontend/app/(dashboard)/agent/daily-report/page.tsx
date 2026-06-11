@@ -158,7 +158,6 @@ function SkippedSummary({ skipped }: { skipped: EvaluationRow[] }) {
 
 // ---------- per-call card (read-only, no transcript, no flag) ----------
 function AgentCallCard({ ev }: { ev: EvaluationRow }) {
-  const [showTurns, setShowTurns] = useState(false);
   const sc = ev.scorecard;
   if (!sc) return null;
   const isCold = sc.rubric ? sc.rubric === 'cold' : ev.duration_sec < 180;
@@ -216,25 +215,6 @@ function AgentCallCard({ ev }: { ev: EvaluationRow }) {
 
         {/* coach's notes — say-this-instead rewrites + next-call focus */}
         <CoachingBlock coaching={sc.coaching} />
-
-        {/* attributed dialogue toggle (not the raw transcript) */}
-        {sc.reconstructed_turns?.length > 0 && (
-          <>
-            <button onClick={() => setShowTurns((s) => !s)} className="text-xs text-blue-600 hover:text-blue-800 font-medium">
-              {showTurns ? 'Hide dialogue' : 'View dialogue'}
-            </button>
-            {showTurns && (
-              <div className="text-xs bg-gray-50 border border-gray-100 rounded-lg p-3 max-h-72 overflow-y-auto space-y-1">
-                {sc.reconstructed_turns.map((t, i) => (
-                  <div key={i}>
-                    <span className={`font-semibold ${t.speaker === 'agent' ? 'text-indigo-600' : t.speaker === 'prospect' ? 'text-gray-700' : 'text-yellow-600'}`}>[{t.speaker}]</span>{' '}
-                    <span className="text-gray-700">{t.text}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
       </div>
     </div>
   );
