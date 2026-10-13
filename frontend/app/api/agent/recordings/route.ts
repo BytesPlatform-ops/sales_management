@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
-import { listRecordings, getRecordingDownloadUrl } from '@/lib/3cx-client';
+import { listRecordings, getRecordingDownloadUrl, findRecordingForPhone } from '@/lib/3cx-client';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
@@ -137,12 +137,7 @@ export async function POST(request: NextRequest) {
             const startDate = new Date(callDate.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
             const endDate = new Date(callDate.getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
             const { recordings } = await listRecordings(clientSecret, startDate, endDate);
-            const phoneClean = cleanPhone.replace(/[^\d]/g, '').slice(-10);
-            const match = recordings.find((r: any) => {
-              const toClean = r.ToCallerNumber.replace(/[^\d]/g, '').slice(-10);
-              const fromClean = r.FromCallerNumber.replace(/[^\d]/g, '').slice(-10);
-              return toClean === phoneClean || fromClean === phoneClean;
-            });
+            const match = findRecordingForPhone(recordings, cleanPhone, callDate, callLog.agent_extension);
             if (match) {
               recId = String(match.Id);
               await queryOne('UPDATE call_logs SET rec_id = $1 WHERE id = $2', [recId, callLog.id]);
@@ -157,12 +152,7 @@ export async function POST(request: NextRequest) {
           const endDate = new Date().toISOString().split('T')[0];
           const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
           const { recordings } = await listRecordings(clientSecret, startDate, endDate);
-          const phoneClean = cleanPhone.replace(/[^\d]/g, '').slice(-10);
-          const match = recordings.find((r: any) => {
-            const toClean = r.ToCallerNumber.replace(/[^\d]/g, '').slice(-10);
-            const fromClean = r.FromCallerNumber.replace(/[^\d]/g, '').slice(-10);
-            return toClean === phoneClean || fromClean === phoneClean;
-          });
+          const match = findRecordingForPhone(recordings, cleanPhone);
           if (match) {
             recId = String(match.Id);
           }

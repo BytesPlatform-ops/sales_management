@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
-import { listRecordings, getRecordingDownloadUrl } from '@/lib/3cx-client';
+import { listRecordings, getRecordingDownloadUrl, findRecordingForPhone } from '@/lib/3cx-client';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
@@ -106,13 +106,8 @@ export async function POST(request: NextRequest) {
 
           const { recordings } = await listRecordings(clientSecret, startDate, endDate);
 
-          // Match by phone number (last 10 digits)
-          const phoneClean = rr.phone_number.replace(/[^\d]/g, '').slice(-10);
-          const match = recordings.find(r => {
-            const toClean = r.ToCallerNumber.replace(/[^\d]/g, '').slice(-10);
-            const fromClean = r.FromCallerNumber.replace(/[^\d]/g, '').slice(-10);
-            return toClean === phoneClean || fromClean === phoneClean;
-          });
+          // Match by phone number (last 10 digits), closest to the call time
+          const match = findRecordingForPhone(recordings, rr.phone_number, callDate, callLog.agent_extension);
 
           if (match) {
             recId = String(match.Id);
@@ -131,12 +126,7 @@ export async function POST(request: NextRequest) {
         const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
         const { recordings } = await listRecordings(clientSecret, startDate, endDate);
 
-        const phoneClean = rr.phone_number.replace(/[^\d]/g, '').slice(-10);
-        const match = recordings.find(r => {
-          const toClean = r.ToCallerNumber.replace(/[^\d]/g, '').slice(-10);
-          const fromClean = r.FromCallerNumber.replace(/[^\d]/g, '').slice(-10);
-          return toClean === phoneClean || fromClean === phoneClean;
-        });
+        const match = findRecordingForPhone(recordings, rr.phone_number);
 
         if (match) {
           recId = String(match.Id);

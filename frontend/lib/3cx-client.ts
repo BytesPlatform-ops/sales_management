@@ -15,7 +15,7 @@ const THREECX_BASE_URL = process.env.THREECX_BASE_URL || 'https://bytesplatform.
 const THREECX_CLIENT_ID = process.env.THREECX_CLIENT_ID || 'sales';
 
 // Cache for JWT token
-let cachedToken: { token: string; expiresAt: number } | null = null;
+let cachedToken: { token: string; expiresAt: number; secret: string } | null = null;
 
 interface ThreeCXTokenResponse {
   access_token: string;
@@ -55,7 +55,7 @@ interface ThreeCXRecording {
  */
 async function getOAuthToken(clientSecret: string): Promise<{ token?: string; error?: string }> {
   // Check cache first (with 10 second buffer)
-  if (cachedToken && Date.now() < cachedToken.expiresAt - 10000) {
+  if (cachedToken && cachedToken.secret === clientSecret && Date.now() < cachedToken.expiresAt - 10000) {
     console.log('[3CX OAuth] Using cached token');
     return { token: cachedToken.token };
   }
@@ -88,6 +88,7 @@ async function getOAuthToken(clientSecret: string): Promise<{ token?: string; er
     cachedToken = {
       token: data.access_token,
       expiresAt: Date.now() + (data.expires_in * 1000),
+      secret: clientSecret,
     };
     
     console.log(`[3CX OAuth] Got token, expires in ${data.expires_in}s`);
@@ -132,9 +133,11 @@ async function makeThreeCXRequest(
     console.log(`[3CX API] Response: ${response.status}`);
 
     if (!response.ok) {
-      const errorText = await response.text();
-      return { 
-        error: `3CX API error: ${response.status} - ${errorText.substring(0, 200)}`,
+      const errorText = (await response.text()) || response.headers.get('www-authenticate') || '';
+      return {
+        error: response.status === 401 || response.status === 403
+          ? `3CX API error: ${response.status} - token issued but rejected by XAPI (${errorText.substring(0, 200) || 'no reason given'}). Check "3CX Configuration API Access" and the API client's role in 3CX Admin → Integrations → API.`
+          : `3CX API error: ${response.status} - ${errorText.substring(0, 200)}`,
         status: response.status 
       };
     }
@@ -156,19 +159,51 @@ export async function listRecordings(
   startDate: string,
   endDate: string
 ): Promise<{ recordings: ThreeCXRecording[]; error?: string }> {
-  // Build OData filter
-  const filter = `$filter=StartTime ge ${startDate}T00:00:00Z and StartTime lt ${endDate}T23:59:59Z&$orderby=StartTime desc&$top=500`;
-  const endpoint = `/xapi/v1/Recordings?${filter}`;
+  // 3CX produces ~400 recordings/day, so a single $top=500 page silently drops
+  // most of a multi-day window. Page through with $skip until exhausted.
+  const PAGE_SIZE = 500;
+  const MAX_PAGES = 20;
+  const recordings: ThreeCXRecording[] = [];
 
-  const result = await makeThreeCXRequest(endpoint, clientSecret);
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const filter = `$filter=StartTime ge ${startDate}T00:00:00Z and StartTime lt ${endDate}T23:59:59Z&$orderby=StartTime desc&$top=${PAGE_SIZE}&$skip=${page * PAGE_SIZE}`;
+    const result = await makeThreeCXRequest(`/xapi/v1/Recordings?${filter}`, clientSecret);
 
-  if (result.error) {
-    return { recordings: [], error: result.error };
+    if (result.error) {
+      return { recordings: [], error: result.error };
+    }
+
+    // 3CX returns data in .value array for OData
+    const batch: ThreeCXRecording[] = result.data?.value || result.data || [];
+    recordings.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
   }
 
-  // 3CX returns data in .value array for OData
-  const recordings: ThreeCXRecording[] = result.data?.value || result.data || [];
   return { recordings };
+}
+
+/**
+ * Pick the recording for a phone number. When the call time is known, choose the
+ * one closest to it — the same number is often dialled several times a day, and
+ * call_logs.call_time is ~5h off from 3CX's UTC StartTime.
+ */
+export function findRecordingForPhone(
+  recordings: ThreeCXRecording[],
+  phone: string,
+  around?: Date,
+  agentExtension?: string | null
+): ThreeCXRecording | undefined {
+  const last10 = (s: string | null | undefined) => (s || '').replace(/[^\d]/g, '').slice(-10);
+  const target = last10(phone);
+  let matches = recordings.filter(r => last10(r.ToCallerNumber) === target || last10(r.FromCallerNumber) === target);
+  // The same customer is often dialled by several agents — prefer this agent's legs.
+  const byAgent = agentExtension ? matches.filter(r => r.FromDn === agentExtension || r.ToDn === agentExtension) : [];
+  if (byAgent.length) matches = byAgent;
+  if (!around || matches.length < 2) return matches[0];
+  const t = around.getTime();
+  return matches.reduce((best, r) =>
+    Math.abs(new Date(r.StartTime).getTime() - t) < Math.abs(new Date(best.StartTime).getTime() - t) ? r : best
+  );
 }
 
 /**
