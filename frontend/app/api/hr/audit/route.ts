@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { query } from '@/lib/db';
-import { listRecordings, getRecordingDownloadUrl, ThreeCXRecording } from '@/lib/3cx-client';
+import { listRecordings, ThreeCXRecording } from '@/lib/3cx-client';
+import { getRecordingSettings, shiftWindowPKT } from '@/lib/recording-settings';
+import { recordingPlayUrl } from '@/lib/recording-links';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
@@ -97,10 +99,10 @@ export async function GET(request: NextRequest) {
 
     console.log(`[Audit GET] Checking for existing audit: ${dateParam}`);
 
-    // Calculate shift window for display
-    const [year, month, day] = dateParam.split('-').map(Number);
-    const nextDayDate = new Date(year, month - 1, day + 1);
-    const nextDayStr = `${nextDayDate.getFullYear()}-${String(nextDayDate.getMonth() + 1).padStart(2, '0')}-${String(nextDayDate.getDate()).padStart(2, '0')}`;
+    // Shift window for display (HR settings: start, end + grace)
+    const shiftWindow = shiftWindowPKT(dateParam, await getRecordingSettings());
+    const shiftStartLabel = `${shiftWindow.start.slice(0, 16)} PKT`;
+    const shiftEndLabel = `${shiftWindow.end.slice(0, 16)} PKT`;
 
     // Fetch recording access token
     let recordingAccessToken = '';
@@ -158,8 +160,8 @@ export async function GET(request: NextRequest) {
         success: true,
         auditExists: false,
         date: dateParam,
-        shiftStart: `${dateParam} 21:00 PKT`,
-        shiftEnd: `${nextDayStr} 05:00 PKT`,
+        shiftStart: shiftStartLabel,
+        shiftEnd: shiftEndLabel,
         sample: [],
         message: 'Audit tables not set up. Run the migration first.',
       });
@@ -172,8 +174,8 @@ export async function GET(request: NextRequest) {
         success: true,
         auditExists: false,
         date: dateParam,
-        shiftStart: `${dateParam} 21:00 PKT`,
-        shiftEnd: `${nextDayStr} 05:00 PKT`,
+        shiftStart: shiftStartLabel,
+        shiftEnd: shiftEndLabel,
         totalValidCalls: 0,
         sampleSize: 0,
         samplingPercentage: 100,
@@ -228,6 +230,8 @@ export async function GET(request: NextRequest) {
 
     // Fetch 3CX recordings to get download URLs
     let threeCXRecordings: ThreeCXRecording[] = [];
+    let recordingsError: string | null = null; // shown on the page instead of silently empty players
+    if (!recordingAccessToken) recordingsError = '3CX API key is not set — open Configure Recordings.';
     if (auditItems.length > 0 && recordingAccessToken) {
       const callTimes = auditItems.map(item => new Date(item.call_time));
       const minTime = new Date(Math.min(...callTimes.map(d => d.getTime())));
@@ -240,7 +244,10 @@ export async function GET(request: NextRequest) {
       const endDate = maxTime.toISOString().split('T')[0];
       
       const { recordings, error } = await listRecordings(recordingAccessToken, startDate, endDate);
-      if (!error) {
+      if (error) {
+        recordingsError = `Could not load recordings from 3CX: ${error.slice(0, 200)}`;
+        console.error('[Audit] 3CX error:', error);
+      } else {
         threeCXRecordings = recordings;
         console.log(`[Audit GET] Fetched ${recordings.length} recordings from 3CX`);
       }
@@ -259,7 +266,7 @@ export async function GET(request: NextRequest) {
       let recordingDurationSeconds: number | null = null;
 
       if (item.rec_id && recordingAccessToken) {
-        recordingUrl = await getRecordingDownloadUrl(Number(item.rec_id), recordingAccessToken);
+        recordingUrl = await recordingPlayUrl(item.rec_id);
         
         // Get duration from 3CX recording
         const rec = recordingMap.get(item.rec_id);
@@ -312,8 +319,8 @@ export async function GET(request: NextRequest) {
       success: true,
       auditExists: true,
       date: dateParam,
-      shiftStart: `${dateParam} 21:00 PKT`,
-      shiftEnd: `${nextDayStr} 05:00 PKT`,
+      shiftStart: shiftStartLabel,
+      shiftEnd: shiftEndLabel,
       totalValidCalls: audit.total_calls,
       sampleSize: audit.sample_size,
       samplingPercentage: 100,
@@ -322,6 +329,7 @@ export async function GET(request: NextRequest) {
       auditStatus: audit.status,
       completedAt: audit.completed_at,
       auditedBy: audit.auditor_name,
+      recordingsError,
     });
 
   } catch (error) {

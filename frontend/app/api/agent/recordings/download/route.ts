@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
-import { queryOne } from '@/lib/db';
-import { getRecordingDownloadUrl } from '@/lib/3cx-client';
+import { query, queryOne } from '@/lib/db';
+import { findRecordingForRequest, getClientSecret } from '@/lib/recording-lookup';
+import { recordingPlayUrl } from '@/lib/recording-links';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
@@ -11,7 +12,8 @@ export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/agent/recordings/download?id=123
- * Returns a fresh download URL for an approved recording (3CX tokens expire in 60s)
+ * Returns a short-lived app link for an approved recording. If no recording was
+ * found at approval time (3CX down, recording not saved yet), looks it up again.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -31,25 +33,30 @@ export async function GET(request: NextRequest) {
       `SELECT * FROM recording_requests WHERE id = $1 AND agent_id = $2 AND status = 'approved'`,
       [Number(requestId), Number(jwt.userId)]
     );
-
     if (!rr) {
       return NextResponse.json({ status: 'error', message: 'Approved recording not found' }, { status: 404 });
     }
 
-    if (!rr.rec_id) {
-      return NextResponse.json({ status: 'error', message: 'Recording not available in 3CX' }, { status: 404 });
+    let recId: string | null = rr.rec_id;
+    if (!recId) {
+      const clientSecret = await getClientSecret();
+      if (!clientSecret) {
+        return NextResponse.json({ status: 'error', message: '3CX not configured' }, { status: 500 });
+      }
+      const lookup = await findRecordingForRequest(rr, clientSecret);
+      if (lookup.error) {
+        return NextResponse.json({ status: 'error', message: '3CX is not reachable right now — try again in a few minutes' }, { status: 502 });
+      }
+      if (!lookup.recId) {
+        return NextResponse.json({ status: 'error', message: 'Recording not in 3CX yet — ask HR to check it' }, { status: 404 });
+      }
+      recId = lookup.recId;
+      await query(`UPDATE recording_requests SET rec_id = $1, recording_url = NULL, updated_at = NOW() WHERE id = $2`, [recId, rr.id]);
     }
-
-    const clientSecret = (await queryOne<any>("SELECT value FROM system_settings WHERE key = 'recording_access_token'"))?.value;
-    if (!clientSecret) {
-      return NextResponse.json({ status: 'error', message: '3CX not configured' }, { status: 500 });
-    }
-
-    const downloadUrl = await getRecordingDownloadUrl(Number(rr.rec_id), clientSecret);
 
     return NextResponse.json({
       status: 'success',
-      data: { download_url: downloadUrl },
+      data: { download_url: `${await recordingPlayUrl(recId)}&download=1`, rec_id: recId },
     });
   } catch (error) {
     console.error('Recording download error:', error);

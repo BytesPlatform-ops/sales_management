@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { query } from '@/lib/db';
-import { listRecordings, getRecordingDownloadUrl, ThreeCXRecording } from '@/lib/3cx-client';
+import { listRecordings, ThreeCXRecording } from '@/lib/3cx-client';
+import { assignForCalls } from '@/lib/recording-lookup';
+import { getRecordingSettings, shiftWindowPKT } from '@/lib/recording-settings';
+import { recordingPlayUrl } from '@/lib/recording-links';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
@@ -112,12 +115,11 @@ export async function POST(request: NextRequest) {
 
     console.log(`[Audit GENERATE] Creating audit for: ${dateParam}`);
 
-    // Calculate shift window
-    const shiftStartPKT = `${dateParam} 21:00:00`;
-    const [year, month, day] = dateParam.split('-').map(Number);
-    const nextDayDate = new Date(year, month - 1, day + 1);
-    const nextDayStr = `${nextDayDate.getFullYear()}-${String(nextDayDate.getMonth() + 1).padStart(2, '0')}-${String(nextDayDate.getDate()).padStart(2, '0')}`;
-    const shiftEndPKT = `${nextDayStr} 05:00:00`;
+    // Shift window from HR settings (start, end + grace), as PKT wall-clock
+    const settings = await getRecordingSettings();
+    const { start: shiftStartPKT, end: shiftEndPKT } = shiftWindowPKT(dateParam, settings);
+    const shiftStartLabel = `${shiftStartPKT.slice(0, 16)} PKT`;
+    const shiftEndLabel = `${shiftEndPKT.slice(0, 16)} PKT`;
 
     // Fetch recording access token
     let recordingAccessToken = '';
@@ -209,8 +211,8 @@ export async function POST(request: NextRequest) {
         success: true,
         auditExists: false,
         date: dateParam,
-        shiftStart: `${dateParam} 21:00 PKT`,
-        shiftEnd: `${nextDayStr} 05:00 PKT`,
+        shiftStart: shiftStartLabel,
+        shiftEnd: shiftEndLabel,
         totalValidCalls: 0,
         sampleSize: 0,
         samplingPercentage: 100,
@@ -258,6 +260,8 @@ export async function POST(request: NextRequest) {
     // FETCH 3CX RECORDINGS AND MATCH
     // =====================================================
     let threeCXRecordings: ThreeCXRecording[] = [];
+    let recordingsError: string | null = null; // shown on the page instead of silently empty players
+    if (!recordingAccessToken) recordingsError = '3CX API key is not set — open Configure Recordings.';
     if (selectedSample.length > 0 && recordingAccessToken) {
       const callTimes = selectedSample.map(c => new Date(c.call_time));
       const minTime = new Date(Math.min(...callTimes.map(d => d.getTime())));
@@ -270,52 +274,21 @@ export async function POST(request: NextRequest) {
       const endDate = maxTime.toISOString().split('T')[0];
       
       const { recordings, error } = await listRecordings(recordingAccessToken, startDate, endDate);
-      if (!error) {
+      if (error) {
+        recordingsError = `Could not load recordings from 3CX: ${error.slice(0, 200)}`;
+        console.error('[Audit] 3CX error:', error);
+      } else {
         threeCXRecordings = recordings;
         console.log(`[Audit GENERATE] Fetched ${recordings.length} recordings from 3CX`);
       }
     }
 
     // Match recordings to calls
-    const matchRecording = (call: typeof selectedSample[0]): { recording: ThreeCXRecording; durationSec: number } | null => {
-      const callPhone = call.phone_number?.replace(/\D/g, '') || '';
-      const callTime = new Date(call.call_time);
-      
-      if (!callPhone) return null;
-      
-      let bestMatch: ThreeCXRecording | null = null;
-      let bestMatchDuration = 0;
-      let bestTimeDiff = Infinity;
-      
-      for (const rec of threeCXRecordings) {
-        const recPhone = rec.ToCallerNumber?.replace(/\D/g, '') || '';
-        if (recPhone !== callPhone) continue;
-        
-        const recExt = rec.FromDn?.replace(/^0+/, '') || '';
-        const callExt = call.agent_extension?.replace(/^0+/, '') || '';
-        if (recExt !== callExt) continue;
-        
-        const recStart = new Date(rec.StartTime);
-        const recEnd = new Date(rec.EndTime);
-        const recDurationSec = Math.round((recEnd.getTime() - recStart.getTime()) / 1000);
-        
-        if (recDurationSec < 60) continue;
-        
-        const timeDiff = Math.abs(recStart.getTime() - callTime.getTime());
-        
-        if (timeDiff < bestTimeDiff) {
-          bestTimeDiff = timeDiff;
-          bestMatch = rec;
-          bestMatchDuration = recDurationSec;
-        }
-      }
-      
-      if (bestMatch && bestTimeDiff <= 24 * 60 * 60 * 1000) {
-        return { recording: bestMatch, durationSec: bestMatchDuration };
-      }
-      
-      return null;
-    };
+    const matchOpts = { minSeconds: settings.recordingMinSeconds, windowMs: settings.matchWindowMinutes * 60 * 1000 };
+    // One recording per call: calls to the same number (incl. short ones not in this
+    // audit) compete for recordings, so a call with no recording can't borrow one.
+    const assigned = threeCXRecordings.length ? await assignForCalls(selectedSample, threeCXRecordings, matchOpts) : new Map();
+    const matchRecording = (call: typeof selectedSample[0]) => assigned.get(String(call.id)) || null;
 
     // Format sample and update rec_ids
     const formattedSample = await Promise.all(selectedSample.map(async (call, index) => {
@@ -353,7 +326,7 @@ export async function POST(request: NextRequest) {
 
       // Get download URL
       if (recId && recordingAccessToken) {
-        recordingUrl = await getRecordingDownloadUrl(Number(recId), recordingAccessToken);
+        recordingUrl = await recordingPlayUrl(recId);
       }
 
       return {
@@ -388,8 +361,8 @@ export async function POST(request: NextRequest) {
       success: true,
       auditExists: true,
       date: dateParam,
-      shiftStart: `${dateParam} 21:00 PKT`,
-      shiftEnd: `${nextDayStr} 05:00 PKT`,
+      shiftStart: shiftStartLabel,
+      shiftEnd: shiftEndLabel,
       totalValidCalls,
       sampleSize,
       samplingPercentage: 100,
@@ -398,6 +371,7 @@ export async function POST(request: NextRequest) {
       auditStatus: 'pending',
       completedAt: null,
       auditedBy: null,
+      recordingsError,
     });
 
   } catch (error) {

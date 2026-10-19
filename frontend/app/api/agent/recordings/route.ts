@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
-import { listRecordings, getRecordingDownloadUrl, findRecordingForPhone } from '@/lib/3cx-client';
+import { findRecordingForRequest, getClientSecret } from '@/lib/recording-lookup';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
@@ -28,7 +28,8 @@ export async function GET(request: NextRequest) {
     const jwt = payload as unknown as JwtPayload;
 
     const requests = await query<any>(
-      `SELECT rr.*, u2.username as approved_by_name
+      `SELECT rr.id, rr.agent_id, rr.phone_number, rr.call_log_id, rr.rec_id, rr.status, rr.notes,
+              rr.hr_notes, rr.created_at, rr.updated_at, u2.username as approved_by_name
        FROM recording_requests rr
        LEFT JOIN users u2 ON u2.id = rr.approved_by
        WHERE rr.agent_id = $1
@@ -101,20 +102,21 @@ export async function POST(request: NextRequest) {
 
     const cleanPhone = phone_number.replace(/[^\d+]/g, '');
 
-    // Check for duplicate pending request for this specific call
+    // One open request per call: a pending one is waiting on HR, an approved one
+    // already gives the agent the recording (or a "check again" button).
     const existing = await queryOne<any>(
-      `SELECT id FROM recording_requests WHERE agent_id = $1 AND phone_number = $2 AND call_log_id = $3 AND status = 'pending'`,
+      `SELECT id, status FROM recording_requests
+       WHERE agent_id = $1 AND phone_number = $2 AND call_log_id IS NOT DISTINCT FROM $3 AND status IN ('pending', 'approved')
+       ORDER BY created_at DESC LIMIT 1`,
       [Number(jwt.userId), cleanPhone, call_log_id || null]
     );
     if (existing) {
-      return NextResponse.json({ status: 'error', message: 'You already have a pending request for this call' }, { status: 400 });
-    }
-
-    // Get rec_id from selected call_log if provided
-    let recId: string | null = null;
-    if (call_log_id) {
-      const callLog = await queryOne<any>('SELECT rec_id FROM call_logs WHERE id = $1', [call_log_id]);
-      recId = callLog?.rec_id || null;
+      return NextResponse.json({
+        status: 'error',
+        message: existing.status === 'pending'
+          ? 'You already have a pending request for this call'
+          : 'This call is already approved — use Download (or "Check again") in My Requests',
+      }, { status: 400 });
     }
 
     // Check if agent is Extension 11 — auto-approve without HR
@@ -122,67 +124,34 @@ export async function POST(request: NextRequest) {
     const isAutoApprove = agent?.extension_number === '11';
 
     if (isAutoApprove) {
-      // Auto-approve: insert as approved and fetch recording from 3CX immediately
-      let downloadUrl: string | null = null;
-
-      // Try to find recording in 3CX
-      if (!recId && call_log_id) {
-        const callLog = await queryOne<any>('SELECT * FROM call_logs WHERE id = $1', [call_log_id]);
-        if (callLog?.rec_id) {
-          recId = callLog.rec_id;
-        } else if (callLog) {
-          const clientSecret = (await queryOne<any>("SELECT value FROM system_settings WHERE key = 'recording_access_token'"))?.value;
-          if (clientSecret) {
-            const callDate = new Date(callLog.call_time);
-            const startDate = new Date(callDate.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-            const endDate = new Date(callDate.getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-            const { recordings } = await listRecordings(clientSecret, startDate, endDate);
-            const match = findRecordingForPhone(recordings, cleanPhone, callDate, callLog.agent_extension);
-            if (match) {
-              recId = String(match.Id);
-              await queryOne('UPDATE call_logs SET rec_id = $1 WHERE id = $2', [recId, callLog.id]);
-            }
-          }
-        }
-      }
-
-      if (!recId) {
-        const clientSecret = (await queryOne<any>("SELECT value FROM system_settings WHERE key = 'recording_access_token'"))?.value;
-        if (clientSecret) {
-          const endDate = new Date().toISOString().split('T')[0];
-          const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-          const { recordings } = await listRecordings(clientSecret, startDate, endDate);
-          const match = findRecordingForPhone(recordings, cleanPhone);
-          if (match) {
-            recId = String(match.Id);
-          }
-        }
-      }
-
-      if (recId) {
-        const clientSecret = (await queryOne<any>("SELECT value FROM system_settings WHERE key = 'recording_access_token'"))?.value;
-        if (clientSecret) {
-          downloadUrl = await getRecordingDownloadUrl(Number(recId), clientSecret);
-        }
+      let recId: string | null = null;
+      let lookupError: string | undefined;
+      const clientSecret = await getClientSecret();
+      if (clientSecret) {
+        ({ recId, error: lookupError } = await findRecordingForRequest({ phone_number: cleanPhone, call_log_id: call_log_id || null }, clientSecret));
       }
 
       const result = await queryOne<any>(
-        `INSERT INTO recording_requests (agent_id, phone_number, call_log_id, rec_id, notes, status, recording_url)
-         VALUES ($1, $2, $3, $4, $5, 'approved', $6) RETURNING *`,
-        [Number(jwt.userId), cleanPhone, call_log_id || null, recId, notes || null, downloadUrl]
+        `INSERT INTO recording_requests (agent_id, phone_number, call_log_id, rec_id, notes, status)
+         VALUES ($1, $2, $3, $4, $5, 'approved') RETURNING *`,
+        [Number(jwt.userId), cleanPhone, call_log_id || null, recId, notes || null]
       );
 
       return NextResponse.json({
         status: 'success',
-        message: recId ? 'Recording auto-approved — ready to download' : 'Recording auto-approved — recording not found in 3CX',
+        message: recId
+          ? 'Recording auto-approved — ready to download'
+          : lookupError
+            ? 'Recording auto-approved — 3CX not reachable right now, use "Check again" shortly'
+            : 'Recording auto-approved — recording not found in 3CX yet, use "Check again" shortly',
         data: result,
       });
     }
 
     const result = await queryOne<any>(
-      `INSERT INTO recording_requests (agent_id, phone_number, call_log_id, rec_id, notes)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [Number(jwt.userId), cleanPhone, call_log_id || null, recId, notes || null]
+      `INSERT INTO recording_requests (agent_id, phone_number, call_log_id, notes)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [Number(jwt.userId), cleanPhone, call_log_id || null, notes || null]
     );
 
     return NextResponse.json({

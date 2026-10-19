@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
+import { RECORDING_SETTING_KEYS, validateRecordingSetting } from '@/lib/recording-settings';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
@@ -107,12 +108,19 @@ export async function PUT(request: NextRequest) {
     }
 
     // Only allow updating specific settings for security
-    const allowedKeys = ['recording_base_url', 'recording_access_token'];
+    const recordingKeys: string[] = Object.values(RECORDING_SETTING_KEYS);
+    const allowedKeys = ['recording_base_url', 'recording_access_token', ...recordingKeys];
     if (!allowedKeys.includes(key)) {
       return NextResponse.json(
         { success: false, error: `Setting '${key}' cannot be modified` },
         { status: 403 }
       );
+    }
+    if (recordingKeys.includes(key)) {
+      const invalid = validateRecordingSetting(key, value.trim());
+      if (invalid) {
+        return NextResponse.json({ success: false, error: `${key}: ${invalid}`, message: `${key}: ${invalid}` }, { status: 400 });
+      }
     }
 
     // Update or insert the setting
@@ -122,10 +130,11 @@ export async function PUT(request: NextRequest) {
        ON CONFLICT (key) DO UPDATE SET 
          value = $2,
          updated_at = CURRENT_TIMESTAMP`,
-      [key, value]
+      [key, recordingKeys.includes(key) ? value.trim() : value]
     );
 
-    console.log(`[HR Settings] ${authResult.payload.username} updated ${key} to: ${value}`);
+    const logged = key === 'recording_access_token' ? '<hidden>' : value; // never log the 3CX API key
+    console.log(`[HR Settings] ${authResult.payload.username} updated ${key} to: ${logged}`);
 
     return NextResponse.json({
       success: true,

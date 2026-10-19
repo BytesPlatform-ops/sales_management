@@ -14,6 +14,7 @@ import {
   FileAudio,
   MessageSquare,
   Search,
+  RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -130,6 +131,7 @@ export default function AgentRecordingsPage() {
       const data = await res.json();
       if (data.status === 'success' && data.data.download_url) {
         window.open(data.data.download_url, '_blank');
+        fetchRequests(); // a "Check again" may have just found the recording
       } else {
         alert(data.message || 'Recording not available');
       }
@@ -311,7 +313,15 @@ export default function AgentRecordingsPage() {
                     </button>
                   )}
                   {req.status === 'approved' && !req.rec_id && (
-                    <span className="text-[10px] text-amber-500 font-medium">Recording not found</span>
+                    <button
+                      onClick={() => downloadRecording(req.id)}
+                      disabled={downloading === req.id}
+                      title="Recording was not found yet — look it up in 3CX again"
+                      className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors"
+                    >
+                      {downloading === req.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                      Check again
+                    </button>
                   )}
                 </div>
               );

@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { query } from '@/lib/db';
-import { listRecordings, getRecordingDownloadUrl, ThreeCXRecording } from '@/lib/3cx-client';
+import { listRecordings, ThreeCXRecording } from '@/lib/3cx-client';
+import { assignForCalls } from '@/lib/recording-lookup';
+import { getRecordingSettings } from '@/lib/recording-settings';
+import { recordingPlayUrl } from '@/lib/recording-links';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
@@ -100,7 +103,7 @@ export async function GET(request: NextRequest) {
         callType: rec.CallType,
         startTime: rec.StartTime,
         endTime: rec.EndTime,
-        downloadUrl: await getRecordingDownloadUrl(rec.Id, clientSecret),
+        downloadUrl: await recordingPlayUrl(rec.Id),
       }))
     );
 
@@ -123,20 +126,6 @@ export async function GET(request: NextRequest) {
 /**
  * Match recordings to calls by extension and timestamp
  */
-function matchRecordingToCall(
-  recordings: ThreeCXRecording[],
-  callExtension: string,
-  callTime: Date
-): ThreeCXRecording | null {
-  for (const rec of recordings) {
-    if (rec.FromDn !== callExtension) continue;
-    const recTime = new Date(rec.StartTime);
-    const timeDiff = Math.abs(callTime.getTime() - recTime.getTime());
-    if (timeDiff < 2 * 60 * 1000) return rec; // Within 2 minutes
-  }
-  return null;
-}
-
 /**
  * POST /api/hr/audit/recordings
  * 
@@ -171,13 +160,24 @@ export async function POST(request: NextRequest) {
     const calls = await query<{
       id: number;
       agent_extension: string;
+      phone_number: string | null;
       call_time: string;
       rec_id: string | null;
     }>(`
-      SELECT id, agent_extension, call_time, rec_id
+      SELECT id, agent_extension, phone_number, call_time, rec_id
       FROM call_logs
       WHERE id = ANY($1)
     `, [callIds]);
+
+    // The audit page reads audit_items.rec_id, so copy over any recording a call
+    // already has (e.g. matched by a recording request) before matching the rest.
+    const syncAuditItems = () => query(`
+      UPDATE audit_items ai SET rec_id = cl.rec_id
+      FROM call_logs cl
+      WHERE ai.call_log_id = cl.id AND cl.id = ANY($1)
+        AND cl.rec_id IS NOT NULL AND ai.rec_id IS NULL
+    `, [callIds]);
+    await syncAuditItems();
 
     if (calls.length === 0) {
       return NextResponse.json({ error: 'No calls found' }, { status: 404 });
@@ -212,22 +212,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error }, { status: 400 });
     }
 
-    // Match recordings to calls
+    // Match recordings to calls (rules from HR settings)
+    const settings = await getRecordingSettings();
+    const matchOpts = { minSeconds: settings.recordingMinSeconds, windowMs: settings.matchWindowMinutes * 60 * 1000 };
     const matches: { callId: number; recId: number }[] = [];
     
+    const assigned = await assignForCalls(callsNeedingRecordings, recordings, matchOpts);
     for (const call of callsNeedingRecordings) {
-      const matched = matchRecordingToCall(recordings, call.agent_extension, new Date(call.call_time));
+      const matched = assigned.get(String(call.id));
       if (matched) {
-        matches.push({ callId: call.id, recId: matched.Id });
+        matches.push({ callId: call.id, recId: matched.recording.Id });
         // Cache in database
-        await query(`UPDATE call_logs SET rec_id = $1 WHERE id = $2`, [String(matched.Id), call.id]);
+        await query(`UPDATE call_logs SET rec_id = $1 WHERE id = $2`, [String(matched.recording.Id), call.id]);
       }
     }
+    await syncAuditItems();
 
     return NextResponse.json({
       success: true,
-      matched: matches.length,
-      total: callsNeedingRecordings.length,
+      matched: calls.length - callsNeedingRecordings.length + matches.length, // incl. already-cached, so the page refreshes
+      total: calls.length,
       totalRecordingsFrom3CX: recordings.length,
       matches,
     });

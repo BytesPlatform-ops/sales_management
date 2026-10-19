@@ -66,6 +66,7 @@ interface AuditSampleResponse {
   auditId?: string | null;
   auditStatus?: string | null;     // 'pending' | 'completed'
   completedAt?: string | null;
+  recordingsError?: string | null;
   auditedBy?: string | null;
 }
 
@@ -132,6 +133,14 @@ export default function HRAuditingPage() {
   // Recording URL configuration
   const [recordingBaseUrl, setRecordingBaseUrl] = useState<string>('');
   const [recordingAccessToken, setRecordingAccessToken] = useState<string>('');
+  // QA / recording-matching settings HR can change without a code deploy
+  const [qaSettings, setQaSettings] = useState<Record<string, string>>({
+    qa_shift_start: '21:00',
+    qa_shift_end: '05:00',
+    qa_shift_end_grace_minutes: '5',
+    recording_min_seconds: '20',
+    recording_match_window_minutes: '10',
+  });
   const [savingUrl, setSavingUrl] = useState(false);
   const [urlSaveMessage, setUrlSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [showConfigPanel, setShowConfigPanel] = useState(false);
@@ -242,6 +251,13 @@ export default function HRAuditingPage() {
           if (data.settings.recording_access_token) {
             setRecordingAccessToken(data.settings.recording_access_token.value || '');
           }
+          setQaSettings(prev => {
+            const next = { ...prev };
+            for (const k of Object.keys(prev)) {
+              if (data.settings[k]?.value) next[k] = data.settings[k].value;
+            }
+            return next;
+          });
         }
       } catch (err) {
         console.error('Failed to load settings:', err);
@@ -261,8 +277,11 @@ export default function HRAuditingPage() {
       // Save both settings
       await api.updateSetting('recording_base_url', recordingBaseUrl);
       await api.updateSetting('recording_access_token', recordingAccessToken);
+      for (const [key, value] of Object.entries(qaSettings)) {
+        await api.updateSetting(key, value);
+      }
       
-      setUrlSaveMessage({ type: 'success', text: 'Settings saved! Re-generate sample to apply.' });
+      setUrlSaveMessage({ type: 'success', text: 'Settings saved! New audits and lookups use them right away.' });
       setTimeout(() => setUrlSaveMessage(null), 5000);
     } catch (err: any) {
       setUrlSaveMessage({ type: 'error', text: err.message || 'Failed to save settings' });
@@ -490,7 +509,7 @@ export default function HRAuditingPage() {
             
             <div>
               <label className="block text-xs font-medium text-blue-800 mb-1">
-                3CX Access Token (JWT)
+                3CX API Key (client secret)
               </label>
               <input
                 type="password"
@@ -500,8 +519,29 @@ export default function HRAuditingPage() {
                 className="w-full px-3 py-2 text-sm border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
               />
               <p className="text-xs text-blue-500 mt-1">
-                Get this from 3CX Admin → API → Generate Token
+                Get this from 3CX Admin → Integrations → API → client "sales"
               </p>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-2 border-t border-blue-200">
+              {([
+                ['qa_shift_start', 'Shift start (PKT)', 'HH:MM, 24h'],
+                ['qa_shift_end', 'Shift end (PKT)', 'HH:MM, 24h'],
+                ['qa_shift_end_grace_minutes', 'Grace after end (min)', 'e.g. 5 → 5:05 AM'],
+                ['recording_min_seconds', 'Min recording (sec)', 'shorter = broken'],
+                ['recording_match_window_minutes', 'Match window (min)', 'call end vs recording end'],
+              ] as const).map(([key, label, hint]) => (
+                <div key={key}>
+                  <label className="block text-xs font-medium text-blue-800 mb-1">{label}</label>
+                  <input
+                    type="text"
+                    value={qaSettings[key]}
+                    onChange={(e) => setQaSettings(prev => ({ ...prev, [key]: e.target.value }))}
+                    className="w-full px-2 py-1.5 text-sm border border-blue-300 rounded-lg font-mono focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                  <p className="text-[10px] text-blue-500 mt-0.5">{hint}</p>
+                </div>
+              ))}
             </div>
             
             <Button
@@ -588,7 +628,8 @@ export default function HRAuditingPage() {
               max={getYesterdayDate()}
             />
             <p className="text-xs text-gray-500 mt-1">
-              Shift: 9:00 PM → 5:00 AM PKT (overnight)
+              Shift: {qaSettings.qa_shift_start} → {qaSettings.qa_shift_end}
+              {Number(qaSettings.qa_shift_end_grace_minutes) > 0 ? ` (+${qaSettings.qa_shift_end_grace_minutes} min grace)` : ''} PKT
             </p>
           </div>
 
@@ -763,6 +804,12 @@ export default function HRAuditingPage() {
                 </div>
               </div>
 
+              {auditData.recordingsError && (
+                <div className="mx-6 my-3 px-4 py-2 rounded-lg text-xs border bg-red-50 border-red-200 text-red-700 flex items-start gap-2">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                  <span>{auditData.recordingsError}. Players may be empty — use "Test 3CX Connection" and try again.</span>
+                </div>
+              )}
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
@@ -771,6 +818,10 @@ export default function HRAuditingPage() {
                       <TableHead>
                         <User className="inline h-4 w-4 mr-1" />
                         Agent
+                      </TableHead>
+                      <TableHead className="w-36">
+                        <Clock className="inline h-4 w-4 mr-1" />
+                        Time (PKT)
                       </TableHead>
                       <TableHead>
                         <Hash className="inline h-4 w-4 mr-1" />
@@ -804,6 +855,15 @@ export default function HRAuditingPage() {
                             <p className="font-medium text-gray-900">{call.agentName}</p>
                             <p className="text-xs text-gray-500">Ext: {call.agentExtension}</p>
                           </div>
+                        </TableCell>
+                        <TableCell>
+                          {/* call_time is when the call ended; show date too since the shift crosses midnight */}
+                          <p className="font-mono text-sm text-gray-900">
+                            {new Date(call.callTime).toLocaleTimeString('en-US', { timeZone: 'Asia/Karachi', hour: '2-digit', minute: '2-digit', hour12: true })}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            {new Date(call.callTime).toLocaleDateString('en-GB', { timeZone: 'Asia/Karachi', day: '2-digit', month: 'short' })}
+                          </p>
                         </TableCell>
                         <TableCell>
                           <span className="font-mono text-sm text-gray-700">{call.customerNumber || '-'}</span>
