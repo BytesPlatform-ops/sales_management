@@ -311,7 +311,7 @@ export default function HRRecordingsPage() {
                   </div>
 
                   {req.play_url && playing === req.play_url && (
-                    <audio controls autoPlay src={req.play_url} className="w-full mt-3 h-9" onError={() => setMessage({ type: 'error', text: 'Could not play — refresh the page (links expire after 15 min) or the recording was removed from 3CX.' })} />
+                    <audio controls autoPlay src={req.play_url} className="w-full mt-3 h-9" onError={() => setMessage({ type: 'error', text: 'Could not play — refresh the page (links expire after 12 hours) or the recording was removed from 3CX.' })} />
                   )}
 
                   {/* Manual finder */}

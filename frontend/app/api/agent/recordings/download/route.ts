@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       status: 'success',
-      data: { download_url: `${await recordingPlayUrl(recId)}&download=1`, rec_id: recId },
+      data: { download_url: `${await recordingPlayUrl(recId, '30m')}&download=1`, rec_id: recId },
     });
   } catch (error) {
     console.error('Recording download error:', error);

@@ -10,7 +10,9 @@ const SECRET = new TextEncoder().encode(
 );
 const PURPOSE = 'recording-play';
 
-export async function recordingPlayUrl(recId: number | string, ttl = '15m'): Promise<string> {
+// HR keeps audit pages open for a whole review session, so links last a shift;
+// each link still unlocks only one recording.
+export async function recordingPlayUrl(recId: number | string, ttl = '12h'): Promise<string> {
   const t = await new SignJWT({ recId: Number(recId), purpose: PURPOSE })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
