@@ -102,24 +102,40 @@ async function getOAuthToken(clientSecret: string): Promise<{ token?: string; er
 /**
  * Make authenticated request to 3CX API
  */
+/**
+ * fetch() against 3CX with the cached token. 3CX keeps only the newest token per
+ * API client alive: when anything else using client "sales" (the transcription
+ * worker, another server instance, a local dev server) fetches a token, ours is
+ * revoked and returns 401 invalid_token. On 401, drop the cache, get a fresh token
+ * and retry once.
+ */
+async function fetchWithToken(
+  clientSecret: string,
+  doFetch: (token: string) => Promise<Response>
+): Promise<Response | { error: string }> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { token, error } = await getOAuthToken(clientSecret);
+    if (error || !token) return { error: error || 'Failed to get OAuth token' };
+    const response = await doFetch(token);
+    if (response.status !== 401 || attempt === 1) return response;
+    console.warn('[3CX OAuth] Token revoked (another client took a newer one) — refreshing');
+    await response.text().catch(() => ''); // drain the small 401 body (cancel() can hang in undici)
+    cachedToken = null;
+  }
+  return { error: 'unreachable' };
+}
+
 async function makeThreeCXRequest(
   endpoint: string,
   clientSecret: string,
   method: 'GET' | 'POST' = 'GET',
   body?: any
 ): Promise<{ data?: any; error?: string; status?: number }> {
-  // Get JWT token via OAuth
-  const { token, error } = await getOAuthToken(clientSecret);
-  
-  if (error || !token) {
-    return { error: error || 'Failed to get OAuth token', status: 401 };
-  }
-
   const url = `${THREECX_BASE_URL}${endpoint}`;
   console.log(`[3CX API] ${method} ${endpoint}`);
 
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithToken(clientSecret, token => fetch(url, {
       method,
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -128,7 +144,10 @@ async function makeThreeCXRequest(
       },
       body: body ? JSON.stringify(body) : undefined,
       cache: 'no-store',
-    });
+    }));
+    if ('error' in response) {
+      return { error: response.error, status: 401 };
+    }
 
     console.log(`[3CX API] Response: ${response.status}`);
 
@@ -288,12 +307,12 @@ export async function getRecordingById(clientSecret: string, recId: number): Pro
  * reaches the browser. Forwards Range so audio players can seek.
  */
 export async function fetchRecordingAudio(clientSecret: string, recId: number, range?: string | null): Promise<Response | { error: string }> {
-  const { token, error } = await getOAuthToken(clientSecret);
-  if (error || !token) return { error: error || 'Failed to get OAuth token' };
-  return fetch(`${THREECX_BASE_URL}/xapi/v1/Recordings/Pbx.DownloadRecording(recId=${Number(recId)})`, {
-    headers: { Authorization: `Bearer ${token}`, ...(range ? { Range: range } : {}) },
-    cache: 'no-store',
-  });
+  return fetchWithToken(clientSecret, token =>
+    fetch(`${THREECX_BASE_URL}/xapi/v1/Recordings/Pbx.DownloadRecording(recId=${Number(recId)})`, {
+      headers: { Authorization: `Bearer ${token}`, ...(range ? { Range: range } : {}) },
+      cache: 'no-store',
+    })
+  );
 }
 
 /**

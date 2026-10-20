@@ -203,17 +203,23 @@ def get_3cx_token(client_secret: str) -> str:
 
 
 def download_recording(rec_id: int, client_secret: str, dest_path: str):
-    """Fresh token per download (3CX JWTs expire in ~60s)."""
-    token = get_3cx_token(client_secret)
-    url = (
-        f"{THREECX_BASE_URL}/xapi/v1/Recordings/"
-        f"Pbx.DownloadRecording(recId={rec_id})?access_token={token}"
-    )
-    with requests.get(url, stream=True, timeout=120) as r:
-        r.raise_for_status()
-        with open(dest_path, "wb") as f:
-            for chunk in r.iter_content(chunk_size=1 << 16):
-                f.write(chunk)
+    """Fresh token per download. 3CX keeps only the newest token per API client, so
+    if the web app takes one between our token fetch and the download we get a 401 —
+    fetch a new token and retry once."""
+    for attempt in range(2):
+        token = get_3cx_token(client_secret)
+        url = (
+            f"{THREECX_BASE_URL}/xapi/v1/Recordings/"
+            f"Pbx.DownloadRecording(recId={rec_id})?access_token={token}"
+        )
+        with requests.get(url, stream=True, timeout=120) as r:
+            if r.status_code == 401 and attempt == 0:
+                continue
+            r.raise_for_status()
+            with open(dest_path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=1 << 16):
+                    f.write(chunk)
+        break
     if os.path.getsize(dest_path) == 0:
         raise RuntimeError("Downloaded recording is empty")
 

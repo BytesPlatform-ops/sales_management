@@ -1,4 +1,9 @@
-import { Pool } from 'pg';
+import { Pool, types } from 'pg';
+
+// call_logs.call_time etc. are `timestamp without time zone` holding UTC. pg parses
+// those in the server's local zone, so a host with TZ=Asia/Karachi shifted every
+// time by 5h. Always read them as UTC.
+types.setTypeParser(1114, (value: string) => new Date(value.replace(' ', 'T') + 'Z'));
 
 // Database configuration for Next.js API routes
 const pool = new Pool({
