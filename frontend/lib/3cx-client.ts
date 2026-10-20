@@ -210,6 +210,9 @@ export interface MatchOptions {
   windowMs: number;
 }
 
+/** call_logs.call_time is stamped at call end; 3CX's EndTime agrees within seconds. */
+const EXACT_MATCH_MS = 60 * 1000;
+
 export const DEFAULT_MATCH_OPTIONS: MatchOptions = { minSeconds: 20, windowMs: 10 * 60 * 1000 };
 
 const last10 = (s: string | null | undefined) => (s || '').replace(/\D/g, '').slice(-10);
@@ -255,8 +258,11 @@ export function assignRecordingsToCalls(
     for (const rec of recordings) {
       if (!recordingInvolves(rec, call.phone_number, call.agent_extension)) continue;
       const durationSec = recordingDurationSec(rec);
-      if (durationSec < opts.minSeconds) continue;
       const diff = Math.abs(new Date(rec.EndTime).getTime() - callEnd);
+      // A recording ending within a minute of the call's end is that call's own,
+      // however short (e.g. a 32s call with a 4s recording). Only looser matches
+      // must clear the minimum length, so broken fragments can't attach elsewhere.
+      if (durationSec < opts.minSeconds && diff > EXACT_MATCH_MS) continue;
       if (diff <= opts.windowMs) pairs.push({ callId: String(call.id), recording: rec, durationSec, diff });
     }
   }
