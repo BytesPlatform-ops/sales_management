@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { api } from '@/lib/api-client';
 import {
@@ -31,6 +31,7 @@ interface RecordingRequest {
   id: number;
   phone_number: string;
   status: 'pending' | 'approved' | 'rejected';
+  call_log_id: number | string | null;
   rec_id: string | null;
   notes: string | null;
   hr_notes: string | null;
@@ -68,6 +69,19 @@ export default function AgentRecordingsPage() {
   }, []);
 
   useEffect(() => { fetchRequests(); }, [fetchRequests]);
+
+  // Calls this agent already asked for (in any earlier session), so the search list
+  // shows them as requested/approved instead of offering a duplicate request.
+  const requestStatusByCall = useMemo(() => {
+    const m = new Map<number, 'pending' | 'approved'>();
+    for (const r of requests) {
+      if (r.call_log_id && (r.status === 'pending' || r.status === 'approved')) {
+        const id = Number(r.call_log_id);
+        if (m.get(id) !== 'approved') m.set(id, r.status);
+      }
+    }
+    return m;
+  }, [requests]);
 
   const searchCalls = async () => {
     if (!phoneNumber.trim() || searching) return;
@@ -221,9 +235,12 @@ export default function AgentRecordingsPage() {
                       )}
                       <span className="ml-2 text-[10px] text-gray-400">Ext: {call.agent_extension}</span>
                     </div>
-                    {requestedCalls.has(call.id) ? (
-                      <span className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg">
-                        <Check className="h-3 w-3" /> Requested
+                    {requestedCalls.has(call.id) || requestStatusByCall.has(call.id) ? (
+                      <span
+                        title={requestStatusByCall.get(call.id) === 'approved' ? 'Already approved — download it from My Requests below' : undefined}
+                        className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg"
+                      >
+                        <Check className="h-3 w-3" /> {requestStatusByCall.get(call.id) === 'approved' ? 'Approved' : 'Requested'}
                       </span>
                     ) : (
                       <button
