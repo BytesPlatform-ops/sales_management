@@ -24,7 +24,7 @@ export const GET = handler(async (request: NextRequest) => {
          SELECT user_id, ai_score_json, final_score, reviewed_at FROM training_call_reviews WHERE status = 'reviewed' AND trainer_override_json IS NOT NULL AND ai_score_json IS NOT NULL
        ) x ORDER BY user_id, reviewed_at DESC
      )
-     SELECT * FROM (
+     SELECT q.*, g.gap FROM (
        SELECT 'roleplay' AS kind, s.id, s.user_id, u.full_name, s.persona_json->>'title' AS title, s.purpose, s.engine,
               s.final_score, (s.ai_score_json->>'total')::numeric AS ai_total, s.status, s.human_reviewed,
               COALESCE(s.finished_at, s.started_at) AS at, sc.exam_kind

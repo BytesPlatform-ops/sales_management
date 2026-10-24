@@ -13,7 +13,8 @@ import {
   TableCell,
 } from '@/components/ui/table';
 import { formatCurrency } from '@/lib/utils';
-import { Plus, Search, Edit, Trash2, X, Clock, DollarSign, Target, UserCheck, UserX } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, X, Clock, DollarSign, Target, UserCheck, UserX, GraduationCap, Headphones } from 'lucide-react';
+import Link from 'next/link';
 
 interface AgentForm {
   username: string;
@@ -305,7 +306,13 @@ export default function AgentsPage() {
                         </span>
                       </div>
                       <div>
-                        <p className="font-medium text-gray-900">{agent.full_name}</p>
+                        <Link
+                          href={`/hr/agents/${agent.id}/calls`}
+                          className="font-medium text-gray-900 hover:text-indigo-600 hover:underline underline-offset-2"
+                          title="View calls and recordings"
+                        >
+                          {agent.full_name}
+                        </Link>
                         <p className="text-xs text-gray-500">@{agent.username}</p>
                       </div>
                     </div>
@@ -362,6 +369,22 @@ export default function AgentsPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-1">
+                      <Link
+                        href={`/hr/agents/${agent.id}/calls`}
+                        title="Calls & recordings"
+                        aria-label={`Calls and recordings for ${agent.full_name}`}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-gray-100"
+                      >
+                        <Headphones className="h-4 w-4 text-gray-500" />
+                      </Link>
+                      <Link
+                        href={`/hr/training/rep/${agent.id}`}
+                        title="Training progress"
+                        aria-label={`Training progress for ${agent.full_name}`}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-gray-100"
+                      >
+                        <GraduationCap className="h-4 w-4 text-gray-500" />
+                      </Link>
                       <Button 
                         variant="ghost" 
                         size="sm"
