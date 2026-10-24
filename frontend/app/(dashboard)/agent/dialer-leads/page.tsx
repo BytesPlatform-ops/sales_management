@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { api } from '@/lib/api-client';
 import {
@@ -28,8 +29,11 @@ import {
   Send,
   ChevronDown,
   X,
+  Lock,
+  Radar,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { LiveAssistPanel } from '@/components/training/rep/live-assist-panel';
 
 interface DialerLead {
   id: number;
@@ -45,6 +49,7 @@ interface DialerLead {
   call_count: number;
   last_called_at: string | null;
   email_sent: boolean;
+  state?: string | null;
 }
 
 interface LeadStats {
@@ -88,6 +93,8 @@ export default function AgentDialerLeadsPage() {
   const [selectedOutcomes, setSelectedOutcomes] = useState<string[]>([]);
   const [outcomeDropdownOpen, setOutcomeDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [trainingBlock, setTrainingBlock] = useState<string | null>(null);
+  const [assistOpen, setAssistOpen] = useState(false);
 
   const fetchNextLead = useCallback(async () => {
     console.log('🔵 fetchNextLead called');
@@ -108,6 +115,14 @@ export default function AgentDialerLeadsPage() {
       });
       const data = await res.json();
       console.log('🔵 Next lead API response:', { status: data.status, leadId: data.data?.id, hasMore: data.hasMore, stats: data.stats });
+
+      // Training gate: uncertified reps get a friendly locked card instead of an error.
+      if (res.status === 403 && data.code === 'TRAINING_REQUIRED') {
+        setTrainingBlock(data.message || 'Finish your training to unlock live leads.');
+        setLead(null);
+        return;
+      }
+      setTrainingBlock(null);
 
       if (data.status === 'success') {
         setLead(data.data);
@@ -201,6 +216,14 @@ export default function AgentDialerLeadsPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Live Assist drawer: Escape closes it; it resets whenever the lead changes.
+  useEffect(() => {
+    if (!assistOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setAssistOpen(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [assistOpen]);
+
   const toggleOutcome = (value: string) => {
     setSelectedOutcomes((prev) =>
       prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]
@@ -262,6 +285,28 @@ export default function AgentDialerLeadsPage() {
     );
   }
 
+  if (trainingBlock) {
+    return (
+      <div className="max-w-2xl mx-auto pt-12 lg:pt-0">
+        <div className="bg-white rounded-2xl border border-violet-200 shadow-sm p-8 text-center">
+          <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-violet-100 flex items-center justify-center">
+            <Lock className="h-7 w-7 text-violet-600" />
+          </div>
+          <h2 className="text-xl font-bold text-gray-900 mb-1">Live leads unlock after training</h2>
+          <p className="text-gray-600 text-sm max-w-md mx-auto">{trainingBlock}</p>
+          <div className="mt-5 flex flex-wrap justify-center gap-2">
+            <Link href="/agent/training" className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-semibold hover:bg-primary-700">
+              Go to my training <ArrowRight className="h-4 w-4" />
+            </Link>
+            <Link href="/agent/training/roleplay" className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 text-sm font-medium hover:bg-gray-50">
+              Practise a roleplay
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const calledCount = stats ? parseInt(stats.called) : 0;
   const totalCount = stats ? parseInt(stats.total) : 0;
   const progressPct = totalCount > 0 ? (calledCount / totalCount) * 100 : 0;
@@ -317,7 +362,14 @@ export default function AgentDialerLeadsPage() {
                 </h2>
                 <p className="text-xs text-gray-500 font-medium truncate">{lead.firm_name || 'Unknown Company'}</p>
               </div>
-              <div className="flex gap-1.5">
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setAssistOpen(true)}
+                  className="inline-flex items-center gap-1 px-2 py-1 bg-white text-primary-700 border border-primary-200 rounded-md text-[11px] font-bold hover:bg-primary-50"
+                  title="Open Live Assist: talking points, website scan, service to pitch"
+                >
+                  <Radar className="h-3.5 w-3.5" />Live Assist
+                </button>
                 {getField(lead, 'www', 'url', 'website') ? (
                   <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-[10px] font-bold">Website</span>
                 ) : (
@@ -555,6 +607,35 @@ export default function AgentDialerLeadsPage() {
           </div>
         </div>
       ) : null}
+
+      {/* Live Assist drawer */}
+      {assistOpen && lead && (
+        <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Live Assist">
+          <button className="absolute inset-0 bg-gray-900/30" aria-label="Close Live Assist" onClick={() => setAssistOpen(false)} />
+          <div className="relative h-full w-full sm:w-[460px] bg-gray-50 shadow-2xl overflow-y-auto">
+            <div className="sticky top-0 z-10 flex items-center justify-between gap-2 bg-white border-b px-4 py-3">
+              <span className="inline-flex items-center gap-1.5 font-semibold text-gray-900"><Radar className="h-4 w-4 text-primary-600" />Live Assist</span>
+              <button onClick={() => setAssistOpen(false)} className="p-1.5 rounded-md text-gray-500 hover:bg-gray-100" aria-label="Close">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="p-4">
+              <LiveAssistPanel
+                key={lead.id}
+                compact
+                initialLead={{
+                  id: lead.id,
+                  firm_name: lead.firm_name,
+                  narrative: getField(lead, 'capabilities', 'narrative', 'description') || '',
+                  website: getField(lead, 'www', 'url', 'website') || '',
+                  state: lead.state || null,
+                  city_state: getField(lead, 'address', 'city') ? extractCity(getField(lead, 'address', 'city')!) : lead.state || null,
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

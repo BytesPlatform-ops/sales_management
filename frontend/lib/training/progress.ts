@@ -12,6 +12,7 @@ import { query, queryOne } from '@/lib/db';
 import { emitEvent, notify, notifyTrainers } from './events';
 import { getRampStatus, onLiveCallCertified, setPhase } from './ramp';
 import { awardCertBadge } from './badges';
+import { getSettings } from './settings';
 
 export interface TrackRow { id: number; code: string; title: string; description: string | null; sort_order: number; is_placeholder: boolean; cert_code: string | null }
 export interface CourseRow { id: number; track_id: number; code: string; title: string; description: string | null; sort_order: number; required: boolean; day_number: number | null }
@@ -237,7 +238,7 @@ export function nextLesson(tracks: TrackView[]): LessonView | null {
 }
 
 export async function assertLessonUnlocked(userId: number, lessonId: number) {
-  const { tracks } = await buildPath(userId);
+  const { tracks } = await buildPath(userId, (await getSettings()).quiz_cooldown_minutes);
   for (const t of tracks) for (const c of t.courses) for (const l of c.lessons) {
     if (l.id === lessonId) return l;
   }

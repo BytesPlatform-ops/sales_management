@@ -32,6 +32,7 @@ import {
   Download,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { PhaseBadge } from '@/components/training/ui';
 
 // Fetcher for SWR
 const fetcher = async (url: string) => {
@@ -75,6 +76,11 @@ export default function PayrollDashboard() {
     fetcher,
     { revalidateOnFocus: false }
   );
+
+  // Training ramp: which phases are paid as 100% performance (penalty-free).
+  const { data: trainingSettings } = useSWR('/api/training/settings', fetcher, { revalidateOnFocus: false });
+  const penaltyFree: string[] = trainingSettings?.penalty_free_phases || ['TRAINING', 'SUPERVISED', 'RAMP_50'];
+  const hasRampAgents = (data?.agents || []).some((a: any) => a.rampPhase && a.rampPhase !== 'FULL');
 
   // Month navigation
   const navigateMonth = (direction: 'prev' | 'next') => {
@@ -295,7 +301,14 @@ export default function PayrollDashboard() {
       {/* Detailed Payroll Table */}
       <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900">Detailed Payroll</h3>
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Detailed Payroll</h3>
+            {hasRampAgents && (
+              <p className="text-xs text-gray-500 mt-0.5">
+                Badge = rep is in the training ramp. Penalty-free phases ({penaltyFree.map((p) => p.replace('_', ' ').toLowerCase()).join(', ')}) are paid as 100% performance; Ramp 75 uses 75% targets.
+              </p>
+            )}
+          </div>
           <button className="flex items-center gap-2 text-sm text-indigo-600 hover:text-indigo-700">
             <Download className="h-4 w-4" />
             Export CSV
@@ -347,6 +360,15 @@ export default function PayrollDashboard() {
                         <div>
                           <p className="font-medium text-gray-900">{agent.name}</p>
                           <p className="text-sm text-gray-500">@{agent.username}</p>
+                          {agent.rampPhase && agent.rampPhase !== 'FULL' && (() => {
+                            const freeDays = (agent.dailyBreakdown || []).filter((d: any) => penaltyFree.includes(d.rampPhase)).length;
+                            return (
+                              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                <PhaseBadge phase={agent.rampPhase} />
+                                {freeDays > 0 && <span className="text-xs text-gray-500">{freeDays} penalty-free day{freeDays === 1 ? '' : 's'}</span>}
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
                     </td>

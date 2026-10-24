@@ -114,7 +114,10 @@ async function publicDrill(row: any) {
   ]);
   const opener = 'Hi [First name], it’s [Your name] with Bytes Platform. How have you been? … The reason for my call is: we work with contractors registered on SAM.gov, and I was just looking at your website. Quick question: is it bringing you any work right now, or is it more of a business card?';
   return {
-    drill_date: row.drill_date,
+    // pg parses DATE as local midnight; send the plain YYYY-MM-DD (PKT drill day) instead.
+    drill_date: row.drill_date instanceof Date
+      ? `${row.drill_date.getFullYear()}-${String(row.drill_date.getMonth() + 1).padStart(2, '0')}-${String(row.drill_date.getDate()).padStart(2, '0')}`
+      : String(row.drill_date).slice(0, 10),
     completed_at: row.completed_at,
     score_pct: row.score_pct === null ? null : Number(row.score_pct),
     results: row.results_json || {},

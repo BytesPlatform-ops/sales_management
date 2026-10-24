@@ -11,7 +11,8 @@ import { Fragment, ReactNode } from 'react';
 function inline(text: string, keyBase: string): ReactNode[] {
   const out: ReactNode[] = [];
   // order matters: code, bold, italic, link
-  const re = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\s][^*]*\*|_[^_\s][^_]*_)|(\[[^\]]+\]\([^)\s]+\))/g;
+  // _italic_ only at word boundaries, so identifiers like LIVE_CALL_CERT stay intact.
+  const re = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\s][^*]*\*|(?<![A-Za-z0-9])_[^_\s][^_]*_(?![A-Za-z0-9]))|(\[[^\]]+\]\([^)\s]+\))/g;
   let last = 0;
   let m: RegExpExecArray | null;
   let i = 0;

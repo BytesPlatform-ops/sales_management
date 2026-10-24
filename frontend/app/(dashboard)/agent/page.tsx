@@ -19,6 +19,9 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import Link from 'next/link';
+import { GraduationCap } from 'lucide-react';
+import { PhaseBadge } from '@/components/training/ui';
 import { Label } from '@/components/ui/label';
 
 // Fetcher for SWR - uses token from localStorage
@@ -258,6 +261,29 @@ export default function AgentDashboard() {
           })}
         </div>
       </div>
+
+      {/* Training / ramp phase (only while not on full quota) */}
+      {data.ramp && data.ramp.phase && data.ramp.phase !== 'FULL' && (
+        <Link href="/agent/training" className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4 hover:bg-violet-100/70 transition-colors">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <GraduationCap className="h-6 w-6 text-violet-600 shrink-0" />
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold text-gray-900">Training & ramp-up</span>
+                <PhaseBadge phase={data.ramp.phase} />
+              </div>
+              <p className="text-sm text-gray-600">
+                {data.ramp.phase === 'RAMP_75'
+                  ? `Your targets are ${Math.round((data.ramp.multiplier ?? 0.75) * 100)}% of the full quota this phase.`
+                  : data.ramp.penaltyFree
+                    ? 'Penalty-free: no missed-target deductions while you are in this phase.'
+                    : `Your targets are ${Math.round((data.ramp.multiplier ?? 1) * 100)}% of the full quota.`}
+              </p>
+            </div>
+          </div>
+          <span className="text-sm font-semibold text-violet-700 whitespace-nowrap">Open training →</span>
+        </Link>
+      )}
 
       {/* Hero Section - Earnings Card (3/4) + Attendance Card (1/4) */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
