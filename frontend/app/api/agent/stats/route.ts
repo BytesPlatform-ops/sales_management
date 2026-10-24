@@ -8,6 +8,7 @@ import {
 } from '@/lib/salary-utils';
 import { getAllTargets } from '@/lib/targets';
 import { loadRampLookup } from '@/lib/training/ramp';
+import { getAgentStartDates } from '@/lib/agent-start';
 import {
   getCurrentDateKarachi,
   formatDateYMD,
@@ -320,11 +321,16 @@ export async function GET(request: NextRequest) {
       }
     }
     
+    // Days before the agent started don't count (reused extensions carry the
+    // previous owner's calls).
+    const startDate = (await getAgentStartDates([Number(user.id)])).get(Number(user.id));
+
     // Convert to array and sort by date
     const dailyStats: DailyStats[] = Array.from(statsMap.values())
+      .filter((s) => !startDate || s.date >= startDate)
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    const attendanceRecords: AttendanceRecord[] = attendanceRows.map(row => ({
+    const attendanceRecords: AttendanceRecord[] = attendanceRows.filter(row => !startDate || row.date >= startDate).map(row => ({
       date: row.date,
       status: row.status,
       hr_approved: row.hr_approved,

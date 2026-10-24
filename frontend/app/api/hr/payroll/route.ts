@@ -8,6 +8,7 @@ import {
 } from '@/lib/salary-utils';
 import { getAllTargets } from '@/lib/targets';
 import { loadRampLookup } from '@/lib/training/ramp';
+import { getAgentStartDates } from '@/lib/agent-start';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
@@ -133,6 +134,7 @@ export async function GET(request: NextRequest) {
 
     // Training-module ramp: penalty-free phases + reduced quota per day (B.9)
     const rampFor = await loadRampLookup(agents.map((a) => Number(a.id)));
+    const startDates = await getAgentStartDates(agents.map((a) => Number(a.id)));
     const todayYMD = new Date().toISOString().slice(0, 10);
 
     // 4. Get daily_stats for the month
@@ -215,6 +217,10 @@ export async function GET(request: NextRequest) {
     });
 
     for (const agent of agents) {
+      // Agents who hadn't started by the end of this month aren't on its payroll.
+      const startDate = startDates.get(Number(agent.id));
+      if (startDate && startDate > monthEnd) continue;
+
       const dailyPotential = agent.base_salary / workingDays;
       const agentDailyStats = dailyStatsMap.get(`${agent.id}`) || [];
       const agentCallLogs = callLogsMap.get(agent.extension_number) || [];
@@ -278,7 +284,11 @@ export async function GET(request: NextRequest) {
         const today = new Date();
         const currentDate = new Date(year, month - 1, day);
         if (currentDate > today) continue;
-        
+
+        // Skip days before the agent started: not absences, and any calls on a
+        // reused extension belong to its previous owner.
+        if (startDate && dateStr < startDate) continue;
+
         const attendance = attendanceLookup.get(dateStr);
         const stats = statsPerDay.get(dateStr);
         
