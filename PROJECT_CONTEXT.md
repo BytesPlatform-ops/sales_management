@@ -227,6 +227,13 @@ pending, interested, not_interested, voicemail, busy, gatekeeper, owner_picked, 
 - **Tracking**: `dialer_email_logs` table (lead_id, agent_id, recipient_email, subject, body_html, sendgrid_message_id, status, created_at)
 - `.env` keys: `SENDGRID_API_KEY`, `SENDER_EMAIL` (fallback: info@bytesplatform.com)
 
+### 13. Sales Onboarding & Training Module
+- Full details: `TRAINING_MODULE.md`. Code in `frontend/lib/training/`, `frontend/app/api/training/`, pages under `/agent/training` and `/hr/training`.
+- 3-day onboarding (Track 1 → PRODUCT_CERT, Track 2 → LIVE_CALL_CERT); compliance (spec Part F) intentionally out of scope.
+- Touches existing systems: payroll + agent stats apply the training ramp phase per day (penalty-free while TRAINING/SUPERVISED/RAMP_50, 75% targets in RAMP_75); `/api/agent/dialer-leads/next` returns 403 `TRAINING_REQUIRED` for uncertified new reps; new agents get the path assigned on creation; scheduler tick added to `instrumentation.ts`.
+- Existing agents were grandfathered (certified, FULL) at install — their pay is unchanged.
+- Tables: `training_*`, `ai_*`, view `v_rep_ramp_status` (`database/migrations/create_training_module.sql` + `seed_training_content.sql`, applied with `frontend/scripts/apply-training-migration.js`).
+
 ## File Structure (Key Files)
 
 ### API Routes (frontend/app/api/)

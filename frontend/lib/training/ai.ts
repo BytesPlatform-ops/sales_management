@@ -24,6 +24,9 @@ export class AiUnavailableError extends Error {
 
 export const STANDARD_MODE_MESSAGE = 'AI unavailable — using standard mode';
 
+/** Override for proxies / test doubles; defaults to the public OpenAI API. */
+export const OPENAI_BASE = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
+
 export type AiFeature =
   | 'roleplay' | 'grading' | 'pitch' | 'site_scan' | 'drill' | 'generate'
   | 'digest' | 'email' | 'transcribe' | 'voice' | 'quiz_grade';
@@ -226,7 +229,7 @@ async function callChat(opts: ChatOptions): Promise<{ text: string; model: strin
   const started = Date.now();
   let res: Response;
   try {
-    res = await fetch('https://api.openai.com/v1/chat/completions', {
+    res = await fetch(`${OPENAI_BASE}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
       body: JSON.stringify(body),
@@ -285,7 +288,7 @@ export async function transcribe(file: Blob, filename: string, userId: number | 
   const started = Date.now();
   let res: Response;
   try {
-    res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    res = await fetch(`${OPENAI_BASE}/audio/transcriptions`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
       body: form,
@@ -321,7 +324,7 @@ export async function createRealtimeSession(userId: number, instructions: string
   const s = await getSettings();
   if (!s.voice_enabled) throw new AiUnavailableError('disabled', 'Voice roleplay is turned off — use text mode');
   const model = await modelFor('voice');
-  const res = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
+  const res = await fetch(`${OPENAI_BASE}/realtime/client_secrets`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
     body: JSON.stringify({

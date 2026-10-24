@@ -3,12 +3,12 @@
  * for tomorrow's lead list at 50% off so Live Assist is instant during the call.
  */
 import { query, queryOne } from '@/lib/db';
-import { assertAiAvailable, estimateCost, modelFor, recordUsage, stripPII, AiUnavailableError } from './ai';
+import { assertAiAvailable, estimateCost, modelFor, recordUsage, stripPII, AiUnavailableError, OPENAI_BASE } from './ai';
 import { getPrompt, renderTemplate } from './prompts';
 import { pitchHash } from './assist';
 import { keywordPitch } from './classify';
 
-const OPENAI = 'https://api.openai.com/v1';
+const OPENAI = OPENAI_BASE;
 const auth = () => ({ Authorization: `Bearer ${process.env.OPENAI_API_KEY}` });
 
 function narrativeOf(raw: any): string {

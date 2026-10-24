@@ -122,7 +122,10 @@ async function publicDrill(row: any) {
       if (i.kind === 'flashcard') return { kind: 'flashcard', ...(cards.find((c) => c.id === i.id) || { id: i.id }) };
       if (i.kind === 'objection') {
         const o = objections.find((x) => x.id === i.id);
-        return o ? publicObjectionItem(o) : { kind: 'objection', id: i.id };
+        // Model answers are needed for self-rating in standard mode; the UI reveals them only after the rep replies.
+        return o
+          ? { ...publicObjectionItem(o), model_answers: o.responses_json || [], quick_response: o.quick_response, principle: o.principle }
+          : { kind: 'objection', id: i.id };
       }
       if (i.kind === 'classification') {
         const c = cls.find((x) => x.id === i.id);
