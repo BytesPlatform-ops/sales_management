@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { query } from '@/lib/db';
 import {
-  calculatePerformanceScore,
+  calculateRampedPerformanceScore,
   calculateDailyEarnings,
   ATTENDANCE_MULTIPLIERS,
 } from '@/lib/salary-utils';
 import { getAllTargets } from '@/lib/targets';
+import { loadRampLookup } from '@/lib/training/ramp';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
@@ -74,7 +75,10 @@ interface AgentPayroll {
     earnings: number;
     performanceScore: number;
     attendanceStatus: string;
+    rampPhase: string;
   }[];
+  rampPhase: string;
+  quotaMultiplier: number;
 }
 
 export async function GET(request: NextRequest) {
@@ -126,6 +130,10 @@ export async function GET(request: NextRequest) {
        WHERE role = 'agent'
        ORDER BY full_name`
     );
+
+    // Training-module ramp: penalty-free phases + reduced quota per day (B.9)
+    const rampFor = await loadRampLookup(agents.map((a) => Number(a.id)));
+    const todayYMD = new Date().toISOString().slice(0, 10);
 
     // 4. Get daily_stats for the month
     const dailyStatsRows = await query<DailyStatsRow>(
@@ -285,10 +293,12 @@ export async function GET(request: NextRequest) {
           leads_count: stats?.leads || 0,
         };
         
-        const performanceScore = calculatePerformanceScore(
+        const ramp = rampFor(Number(agent.id), dateStr);
+        const performanceScore = calculateRampedPerformanceScore(
           dayStats,
           agent.employment_type || 'full_time',
-          allTargets[agent.employment_type || 'full_time']
+          allTargets[agent.employment_type || 'full_time'],
+          ramp
         );
         const dayEarnings = calculateDailyEarnings(dailyPotential, performanceScore, attendanceStatus);
         
@@ -314,6 +324,7 @@ export async function GET(request: NextRequest) {
           earnings: dayEarnings,
           performanceScore,
           attendanceStatus,
+          rampPhase: ramp.phase,
         });
       }
       
@@ -341,6 +352,8 @@ export async function GET(request: NextRequest) {
         deductions: Math.max(0, deductions),
         finalPayout: performanceEarnings,
         dailyBreakdown,
+        rampPhase: rampFor(Number(agent.id), todayYMD).phase,
+        quotaMultiplier: rampFor(Number(agent.id), todayYMD).multiplier,
       });
     }
 

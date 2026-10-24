@@ -12,10 +12,11 @@ const pool = new Pool({
   database: process.env.DB_NAME || 'postgres',
   user: process.env.DB_USER || 'postgres.wcwaslfuvuboexuldtzy',
   password: process.env.DB_PASSWORD || '!Bytes!0712',
-  ssl: {
+  // DB_SSL=false only for local databases (e.g. a test Postgres); Supabase needs SSL.
+  ssl: process.env.DB_SSL === 'false' ? false : {
     rejectUnauthorized: false,
   },
-  max: 10,
+  max: process.env.DB_POOL_MAX ? parseInt(process.env.DB_POOL_MAX, 10) : 10,
   idleTimeoutMillis: 30000,
 });
 

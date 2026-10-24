@@ -7,6 +7,7 @@ import {
   AttendanceRecord,
 } from '@/lib/salary-utils';
 import { getAllTargets } from '@/lib/targets';
+import { loadRampLookup } from '@/lib/training/ramp';
 import {
   getCurrentDateKarachi,
   formatDateYMD,
@@ -347,6 +348,11 @@ export async function GET(request: NextRequest) {
     const allTargets = await getAllTargets();
     const agentTargets = allTargets[user.employment_type || 'full_time'];
 
+    // Training-module ramp (penalty-free while training/supervised/ramp 50%, reduced quota at 75%)
+    const rampFor = await loadRampLookup([Number(user.id)]);
+    // Current phase for display; salary math below still applies the phase per day.
+    const rampToday = rampFor(Number(user.id), '9999-12-31');
+
     // Calculate salary breakdown using shift-based stats
     const salaryBreakdown = calculateSalaryBreakdown(
       Number(user.base_salary),
@@ -356,7 +362,8 @@ export async function GET(request: NextRequest) {
       shiftBasedTodayStats,
       todayAttendance,
       user.employment_type || 'full_time',
-      agentTargets
+      agentTargets,
+      (date) => rampFor(Number(user.id), date)
     );
 
     // Additional context for the frontend
@@ -376,6 +383,9 @@ export async function GET(request: NextRequest) {
           shiftStart: user.shift_start,
           shiftEnd: user.shift_end,
         },
+
+        // Training-module ramp phase in effect today
+        ramp: rampToday,
         
         // Salary breakdown
         salary: {

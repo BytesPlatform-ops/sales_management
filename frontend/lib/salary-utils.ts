@@ -175,6 +175,38 @@ export function calculatePerformanceScore(
 }
 
 /**
+ * Training-module ramp for one day (see lib/training/ramp.ts).
+ * penaltyFree: TRAINING / SUPERVISED / RAMP_50 → no missed-target deductions.
+ * multiplier: quota fraction in effect (RAMP_75 = 0.75 of each target).
+ */
+export interface RampDay {
+  phase: string;
+  multiplier: number;
+  penaltyFree: boolean;
+}
+
+/**
+ * Performance score with the training ramp applied. Without a ramp (or in FULL)
+ * this is exactly calculatePerformanceScore, so existing agents are unaffected.
+ */
+export function calculateRampedPerformanceScore(
+  stats: DailyStats,
+  employmentType: 'full_time' | 'part_time' = 'full_time',
+  targetsOverride?: DailyTargets,
+  ramp?: RampDay
+): number {
+  if (ramp?.penaltyFree) return 1.0;
+  const base = targetsOverride ?? getDailyTargets(employmentType);
+  const m = ramp && ramp.multiplier > 0 && ramp.multiplier < 1 ? ramp.multiplier : 1;
+  const targets: DailyTargets = m === 1 ? base : {
+    calls: Math.max(1, Math.round(base.calls * m)),
+    talk_time_seconds: Math.max(1, Math.round(base.talk_time_seconds * m)),
+    leads: Math.max(0, Math.round(base.leads * m)),
+  };
+  return calculatePerformanceScore(stats, employmentType, targets);
+}
+
+/**
  * Calculate the "3 Lates Free" policy deduction
  * 
  * Policy:
@@ -253,7 +285,8 @@ export function calculateSalaryBreakdown(
   todayStats?: DailyStats,
   todayAttendance?: AttendanceRecord,
   employmentType: 'full_time' | 'part_time' = 'full_time',
-  targetsOverride?: DailyTargets
+  targetsOverride?: DailyTargets,
+  rampForDate?: (date: string) => RampDay
 ): SalaryBreakdown {
   const now = getCurrentDateKarachi();
   const today = formatDateYMD(now);
@@ -292,7 +325,7 @@ export function calculateSalaryBreakdown(
     const attendanceRecord = attendanceMap.get(stats.date);
     const attendance = attendanceRecord?.status || 'absent';
     
-    const performanceScore = calculatePerformanceScore(stats, employmentType, targetsOverride);
+    const performanceScore = calculateRampedPerformanceScore(stats, employmentType, targetsOverride, rampForDate?.(stats.date));
     const dayEarnings = calculateDailyEarnings(dailyPotential, performanceScore, attendance);
     
     activeEarnings += dayEarnings;
@@ -329,7 +362,7 @@ export function calculateSalaryBreakdown(
   let todayAttendanceMultiplier = 0;
   
   if (todayStats && todayAttendance) {
-    todayPerformanceScore = calculatePerformanceScore(todayStats, employmentType, targetsOverride);
+    todayPerformanceScore = calculateRampedPerformanceScore(todayStats, employmentType, targetsOverride, rampForDate?.(todayStats.date));
     todayAttendanceMultiplier = ATTENDANCE_MULTIPLIERS[todayAttendance.status];
     
     todayEarnings = calculateDailyEarnings(

@@ -25,6 +25,8 @@ import {
   GraduationCap,
   Sparkles,
   LineChart,
+  BookOpen,
+  Zap,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -76,6 +78,18 @@ const navItems: NavItem[] = [
     label: 'My Coaching',
     href: '/agent/coaching',
     icon: GraduationCap,
+    roles: ['agent'],
+  },
+  {
+    label: 'Training',
+    href: '/agent/training',
+    icon: BookOpen,
+    roles: ['agent'],
+  },
+  {
+    label: 'Live Assist',
+    href: '/agent/training/assist',
+    icon: Zap,
     roles: ['agent'],
   },
   {
@@ -145,6 +159,12 @@ const navItems: NavItem[] = [
     roles: ['hr'],
   },
   {
+    label: 'Training',
+    href: '/hr/training',
+    icon: BookOpen,
+    roles: ['hr'],
+  },
+  {
     label: 'Leads',
     href: '/hr/dialer-leads',
     icon: FileUp,
@@ -172,6 +192,11 @@ export function Sidebar() {
   if (!user) return null;
 
   const filteredItems = navItems.filter((item) => item.roles.includes(user.role));
+
+  // Training has sub-pages: highlight the longest training nav href that prefixes the path.
+  const trainingMatch = filteredItems
+    .filter((item) => item.href.includes('/training') && (pathname === item.href || pathname.startsWith(item.href + '/')))
+    .sort((a, b) => b.href.length - a.href.length)[0]?.href;
 
   return (
     <>
@@ -219,7 +244,7 @@ export function Sidebar() {
           {/* Nav Items */}
           <nav className="flex-1 min-h-0 overflow-y-auto p-4 space-y-1">
             {filteredItems.map((item) => {
-              const isActive = pathname === item.href;
+              const isActive = item.href.includes('/training') ? trainingMatch === item.href : pathname === item.href;
               return (
                 <Link
                   key={item.href}

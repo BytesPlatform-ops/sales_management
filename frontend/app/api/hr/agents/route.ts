@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
 import bcrypt from 'bcryptjs';
+import { startOnboarding } from '@/lib/training/onboarding';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
@@ -234,6 +235,12 @@ export async function POST(request: NextRequest) {
         shift_end || '18:00:00',
         employment_type || 'full_time',
       ]
+    );
+
+    // Training module: new reps start in TRAINING with the onboarding path assigned.
+    // Never block agent creation on it (module may not be installed yet).
+    await startOnboarding(Number(result[0].id), Number(payload.userId)).catch((err) =>
+      console.error('Training onboarding setup failed:', err)
     );
 
     return NextResponse.json({

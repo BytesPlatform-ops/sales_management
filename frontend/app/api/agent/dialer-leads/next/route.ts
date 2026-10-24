@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
 import { getStateRoutingOrder } from '@/lib/timezone-router';
+import { dialerBlockReason } from '@/lib/training/gate';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,6 +30,15 @@ export async function GET(request: NextRequest) {
     const token = authHeader.split(' ')[1];
     const { payload } = await jwtVerify(token, JWT_SECRET);
     const jwt = payload as unknown as JwtPayload;
+
+    // Training gate: reps without LIVE_CALL_CERT don't get live leads (setting-controlled).
+    const blocked = await dialerBlockReason(Number(jwt.userId));
+    if (blocked) {
+      return NextResponse.json(
+        { status: 'error', code: 'TRAINING_REQUIRED', message: blocked, training_url: '/agent/training' },
+        { status: 403 }
+      );
+    }
 
     // Timezone-based routing: get optimal state order based on current time
     const routing = getStateRoutingOrder();
