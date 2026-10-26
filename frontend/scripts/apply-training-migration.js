@@ -12,7 +12,10 @@ const fs = require('fs');
 const path = require('path');
 const { Client } = require('pg');
 
-const FILES = [
+// Default: the training module. Pass .sql file names to run others, e.g.
+//   node scripts/apply-training-migration.js --dry-run create_projects_module.sql
+const ARG_FILES = process.argv.slice(2).filter((a) => a.endsWith('.sql'));
+const FILES = ARG_FILES.length ? ARG_FILES : [
   'create_training_module.sql',
   'seed_training_content.sql',
 ];
@@ -66,7 +69,7 @@ async function main() {
       console.log(`ok  ${f} (${Date.now() - t} ms)`);
     }
 
-    const counts = await client.query(`
+    const counts = ARG_FILES.length ? { rows: [] } : await client.query(`
       SELECT (SELECT COUNT(*) FROM training_tracks) AS tracks,
              (SELECT COUNT(*) FROM training_courses) AS courses,
              (SELECT COUNT(*) FROM training_lessons) AS lessons,
