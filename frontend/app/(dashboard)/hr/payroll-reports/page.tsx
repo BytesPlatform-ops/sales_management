@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { api } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import {
-  FileText, RefreshCw, Download, FileArchive, Search, AlertTriangle,
+  FileText, RefreshCw, Download, Search, AlertTriangle,
   Users, Wallet, TrendingDown, CalendarDays, Eye, Printer,
 } from 'lucide-react';
 
@@ -107,14 +107,10 @@ export default function PayrollReportsPage() {
     });
   }, [agents, typeFilter, statusFilter, search]);
 
-  const download = async (kind: 'combined' | 'zip') => {
-    setDownloading(kind);
+  const downloadCombined = async () => {
+    setDownloading('combined');
     try {
-      if (kind === 'combined') {
-        await api.downloadPayrollFile(api.payrollCombinedPdfUrl(month), `all-call-agent-salary-reports-${month}.pdf`);
-      } else {
-        await api.downloadPayrollFile(api.payrollZipUrl(month), `call-agent-salary-reports-${month}.zip`);
-      }
+      await api.downloadPayrollFile(api.payrollCombinedPdfUrl(month), `all-call-agent-salary-reports-${month}.pdf`);
     } catch (e: any) {
       alert(e.message || 'Download failed');
     } finally {
@@ -150,13 +146,9 @@ export default function PayrollReportsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => download('combined')} disabled={downloading !== null || filtered.length === 0}>
+          <Button variant="outline" onClick={downloadCombined} disabled={downloading !== null || filtered.length === 0}>
             {downloading === 'combined' ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
             Combined PDF
-          </Button>
-          <Button variant="outline" onClick={() => download('zip')} disabled={downloading !== null || filtered.length === 0}>
-            {downloading === 'zip' ? <RefreshCw className="h-4 w-4 animate-spin" /> : <FileArchive className="h-4 w-4" />}
-            PDFs ZIP
           </Button>
         </div>
       </div>

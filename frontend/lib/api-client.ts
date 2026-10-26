@@ -237,7 +237,7 @@ class ApiClient {
     return this.request<any>(`/hr/payroll-reports/${agentId}?month=${month}`);
   }
 
-  // PDF/ZIP download URLs (token is passed via query for direct <a>/window.open,
+  // PDF download URLs (token is passed via query for direct <a>/window.open,
   // OR fetched as a blob using the Authorization header via downloadPayrollFile).
   payrollPdfUrl(agentId: number, month: string) {
     return `/api/hr/payroll-reports/${agentId}/pdf?month=${month}`;
@@ -245,14 +245,11 @@ class ApiClient {
   payrollCombinedPdfUrl(month: string) {
     return `/api/hr/payroll-reports/pdf/all?month=${month}`;
   }
-  payrollZipUrl(month: string) {
-    return `/api/hr/payroll-reports/zip?month=${month}`;
-  }
 
   // Downloads a payroll export as a blob using the Authorization header,
   // then triggers a browser save. Returns nothing; throws on failure.
   // Note: `path` here is a full absolute path already including `/api`
-  // (from payrollPdfUrl/payrollCombinedPdfUrl/payrollZipUrl), so it must NOT
+  // (from payrollPdfUrl/payrollCombinedPdfUrl), so it must NOT
   // be prefixed with API_BASE again.
   async downloadPayrollFile(path: string, filename: string): Promise<void> {
     const res = await fetch(path, {
