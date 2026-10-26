@@ -8,7 +8,7 @@ interface User {
   id: number;
   username: string;
   full_name: string;
-  role: 'hr' | 'agent';
+  role: 'hr' | 'agent' | 'developer';
   extension_number: string;
   base_salary: number;
   employment_type: 'full_time' | 'part_time';

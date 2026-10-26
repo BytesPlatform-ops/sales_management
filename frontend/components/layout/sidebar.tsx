@@ -29,14 +29,17 @@ import {
   Zap,
   Mic,
   FileText,
+  FolderKanban,
+  CalendarDays,
+  Code2,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 interface NavItem {
   label: string;
   href: string;
   icon: React.ElementType;
-  roles: ('hr' | 'agent')[];
+  roles: ('hr' | 'agent' | 'developer')[];
 }
 
 const navItems: NavItem[] = [
@@ -196,12 +199,45 @@ const navItems: NavItem[] = [
     icon: Trophy,
     roles: ['hr', 'agent'],
   },
+  {
+    label: 'Projects',
+    href: '/projects',
+    icon: FolderKanban,
+    roles: ['hr', 'agent', 'developer'],
+  },
+  {
+    label: 'Project Calendar',
+    href: '/projects/calendar',
+    icon: CalendarDays,
+    roles: ['hr', 'agent', 'developer'],
+  },
+  {
+    label: 'Developers',
+    href: '/hr/developers',
+    icon: Code2,
+    roles: ['hr'],
+  },
 ];
 
 export function Sidebar() {
   const { user, logout } = useAuth();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [projectBadge, setProjectBadge] = useState<{ unread: number; overdue: number } | null>(null);
+
+  // Unread project messages / overdue projects badge (polled every minute).
+  useEffect(() => {
+    if (!user) return;
+    let alive = true;
+    const load = () =>
+      fetch('/api/projects/summary', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }, cache: 'no-store' })
+        .then((r) => r.json())
+        .then((j) => { if (alive && j.status === 'success') setProjectBadge(j.data); })
+        .catch(() => {});
+    load();
+    const t = setInterval(load, 60_000);
+    return () => { alive = false; clearInterval(t); };
+  }, [user]);
 
   if (!user) return null;
 
@@ -209,7 +245,7 @@ export function Sidebar() {
 
   // Training has sub-pages: highlight the longest training nav href that prefixes the path.
   const trainingMatch = filteredItems
-    .filter((item) => item.href.includes('/training') && (pathname === item.href || pathname.startsWith(item.href + '/')))
+    .filter((item) => (item.href.includes('/training') || item.href.startsWith('/projects')) && (pathname === item.href || pathname.startsWith(item.href + '/')))
     .sort((a, b) => b.href.length - a.href.length)[0]?.href;
 
   return (
@@ -258,7 +294,7 @@ export function Sidebar() {
           {/* Nav Items */}
           <nav className="flex-1 min-h-0 overflow-y-auto p-4 space-y-1">
             {filteredItems.map((item) => {
-              const isActive = item.href.includes('/training') ? trainingMatch === item.href : pathname === item.href;
+              const isActive = item.href.includes('/training') || item.href.startsWith('/projects') ? trainingMatch === item.href : pathname === item.href;
               return (
                 <Link
                   key={item.href}
@@ -273,6 +309,12 @@ export function Sidebar() {
                 >
                   <item.icon className="h-5 w-5" />
                   <span className="font-medium">{item.label}</span>
+                  {item.href === '/projects' && projectBadge && (projectBadge.unread > 0 || projectBadge.overdue > 0) && (
+                    <span className="ml-auto flex items-center gap-1">
+                      {projectBadge.unread > 0 && <span className="rounded-full bg-primary-600 px-1.5 text-[11px] font-bold text-white" title="Unread messages">{projectBadge.unread}</span>}
+                      {projectBadge.overdue > 0 && <span className="rounded-full bg-red-500 px-1.5 text-[11px] font-bold text-white" title="Overdue projects">{projectBadge.overdue}</span>}
+                    </span>
+                  )}
                 </Link>
               );
             })}

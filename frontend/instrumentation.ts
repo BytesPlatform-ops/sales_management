@@ -7,6 +7,7 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     const { checkAndAutoDistribute } = await import('@/lib/auto-distribute');
     const { runTrainingTick } = await import('@/lib/training/scheduler');
+    const { runProjectsTick } = await import('@/lib/projects/scheduler');
 
     // Check every 60 seconds if it's time to auto-distribute
     setInterval(async () => {
@@ -15,6 +16,8 @@ export async function register() {
       } finally {
         // Training: outbox → webhooks, ramp phases, badges, batches, coach digest
         await runTrainingTick();
+        // Projects: open the next cycle of recurring projects (hourly)
+        await runProjectsTick();
       }
     }, 60 * 1000);
 

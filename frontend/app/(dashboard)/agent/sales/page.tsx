@@ -25,7 +25,9 @@ import {
   TrendingUp,
   Trophy,
   CreditCard,
+  FolderKanban,
 } from 'lucide-react';
+import Link from 'next/link';
 
 interface Sale {
   id: string;
@@ -478,7 +480,14 @@ export default function SalesPage() {
                   </div>
 
                   {/* Action Button */}
-                  <div className="flex-shrink-0">
+                  <div className="flex-shrink-0 flex flex-col items-end gap-2">
+                    <Link
+                      href={`/projects/new?sale_id=${sale.id}`}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline"
+                    >
+                      <FolderKanban className="h-3.5 w-3.5" />
+                      Open project ticket
+                    </Link>
                     {sale.status === 'partial' ? (
                       <Button
                         variant="outline"

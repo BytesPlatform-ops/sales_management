@@ -225,7 +225,7 @@ export default function LoginPage() {
   const [isPasswordFocused, setIsPasswordFocused] = useState(false);
   
   // Use ref for role to avoid async state issues
-  const userRoleRef = useRef<'hr' | 'agent' | null>(null);
+  const userRoleRef = useRef<'hr' | 'agent' | 'developer' | null>(null);
 
   // Handler for GamifiedSubmitButton - returns true for success, false for error
   const handleGamifiedSubmit = async (): Promise<boolean> => {
@@ -254,6 +254,8 @@ export default function LoginPage() {
     // Redirect based on user role (read from ref for immediate value)
     if (userRoleRef.current === 'hr') {
       router.push('/hr');
+    } else if (userRoleRef.current === 'developer') {
+      router.push('/projects');
     } else {
       router.push('/agent');
     }
