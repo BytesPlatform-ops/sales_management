@@ -60,7 +60,7 @@ const shiftDay = (ymd: string, delta: number) => {
 const scoreClass = (n: number | null) =>
   n === null ? 'bg-gray-100 text-gray-600' : n >= 7 ? 'bg-green-100 text-green-700' : n >= 4 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700';
 
-export default function AgentCallsPage({ params }: { params: { id: string } }) {
+export default function AgentCallsPage({ params, searchParams }: { params: { id: string }; searchParams?: { date?: string } }) {
   const [date, setDate] = useState<string | null>(null);
   const [data, setData] = useState<CallsData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -91,7 +91,8 @@ export default function AgentCallsPage({ params }: { params: { id: string } }) {
     }
   }, [params.id]);
 
-  useEffect(() => { load(null); }, [load]);
+  const initialDate = /^\d{4}-\d{2}-\d{2}$/.test(searchParams?.date || '') ? searchParams!.date! : null;
+  useEffect(() => { load(initialDate); }, [load, initialDate]);
 
   const go = (d: string) => {
     setDate(d);

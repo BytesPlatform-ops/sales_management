@@ -27,6 +27,7 @@ import {
   LineChart,
   BookOpen,
   Zap,
+  Mic,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -156,6 +157,12 @@ const navItems: NavItem[] = [
     label: 'Recordings',
     href: '/hr/recordings',
     icon: FileAudio,
+    roles: ['hr'],
+  },
+  {
+    label: 'Recordings by Agent',
+    href: '/hr/recordings-by-agent',
+    icon: Mic,
     roles: ['hr'],
   },
   {
