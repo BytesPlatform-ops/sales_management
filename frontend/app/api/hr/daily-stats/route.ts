@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { query } from '@/lib/db';
 import { getAllTargets, AllTargets } from '@/lib/targets';
+import { calculatePerformanceScore, calculateDailyEarnings } from '@/lib/salary-utils';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
@@ -54,56 +55,40 @@ function getWorkingDate(dateStr?: string): string {
 }
 
 /**
- * Calculate estimated daily earnings based on performance
- * 
- * NEW RULE: "2 out of 3" - If agent completes ANY 2 of 3 targets, they get FULL salary (100%)
+ * Estimated daily earnings, using the same official payroll rules as the
+ * month-end salary reports (lib/payroll-report-service.ts):
+ *   - performance: calls 60% + talk time 40%, 100% when both targets are met;
+ *     leads never reduce salary
+ *   - attendance: on time / late 100%, half day 50%, absent 0%
+ *   - no check-in but the agent made calls or talked → paid as present
+ * Month-end late-policy deductions (4th+ late) are not part of a single day.
  */
 function calculateEstimatedEarnings(
   baseSalary: number,
   workingDaysInMonth: number,
   callsCount: number,
   talkTimeSeconds: number,
-  leadsCount: number,
   attendanceStatus: string | null,
-  hrApproved: boolean,
   employmentType: string = 'full_time',
   allTargets: AllTargets
 ): number {
-  const dailyPotential = baseSalary / workingDaysInMonth;
+  const dailyPotential = workingDaysInMonth > 0 ? baseSalary / workingDaysInMonth : 0;
+  const empType = employmentType === 'part_time' ? 'part_time' : 'full_time';
+  const targets = allTargets[empType]; // HR-configurable (performance_targets table)
 
-  // Performance targets (HR-configurable, from performance_targets table)
-  const t = employmentType === 'part_time' ? allTargets.part_time : allTargets.full_time;
-  const targets = { calls: t.calls, talkTime: t.talk_time_seconds, leads: t.leads };
-  
-  // Check which targets are completed
-  const callsCompleted = callsCount >= targets.calls;
-  const talkTimeCompleted = talkTimeSeconds >= targets.talkTime;
-  const leadsCompleted = leadsCount >= targets.leads;
-  
-  // Count how many targets are completed
-  const targetsCompleted = [callsCompleted, talkTimeCompleted, leadsCompleted].filter(Boolean).length;
-  
-  // "2 out of 3" rule: If 2+ targets are met, agent gets full salary (100%)
-  let performanceScore: number;
-  if (targetsCompleted >= 2) {
-    performanceScore = 1.0; // 100% performance score
-  } else {
-    // Otherwise, calculate weighted score (original logic)
-    const callsScore = Math.min((callsCount / targets.calls) * 0.40, 0.40);
-    const talkTimeScore = Math.min((talkTimeSeconds / targets.talkTime) * 0.30, 0.30);
-    const leadsScore = Math.min((leadsCount / targets.leads) * 0.30, 0.30);
-    performanceScore = callsScore + talkTimeScore + leadsScore;
-  }
-  
-  // Attendance multiplier
-  let attendanceMultiplier = 1.0;
-  if (attendanceStatus === 'half_day') {
-    attendanceMultiplier = hrApproved ? 0.5 : 0.25;
-  } else if (attendanceStatus === 'absent' || !attendanceStatus) {
-    attendanceMultiplier = 0;
-  }
-  
-  return Math.round(dailyPotential * performanceScore * attendanceMultiplier * 100) / 100;
+  const performanceScore = calculatePerformanceScore(
+    { date: '', calls_count: callsCount, talk_time_seconds: talkTimeSeconds, leads_count: 0 },
+    empType,
+    targets
+  );
+
+  const known = attendanceStatus === 'on_time' || attendanceStatus === 'late' || attendanceStatus === 'half_day' || attendanceStatus === 'absent';
+  const workedButNoCheckIn = !known && (callsCount > 0 || talkTimeSeconds > 0);
+  const status: 'on_time' | 'late' | 'half_day' | 'absent' = known
+    ? (attendanceStatus as 'on_time' | 'late' | 'half_day' | 'absent')
+    : workedButNoCheckIn ? 'on_time' : 'absent';
+
+  return calculateDailyEarnings(dailyPotential, performanceScore, status);
 }
 
 // GET - Get daily stats for all agents on a specific date
@@ -265,9 +250,7 @@ export async function GET(request: NextRequest) {
         workingDaysInMonth,
         callsCount,
         talkTimeSeconds,
-        leadsApproved || leadsCount,
         agent.attendance_status,
-        agent.hr_approved || false,
         agent.employment_type,
         allTargets
       );
