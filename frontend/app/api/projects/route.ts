@@ -83,7 +83,7 @@ export const POST = handler(async (request: NextRequest) => {
   if (recurring && !RECURRENCES.includes(b.recurrence)) throw new HttpError(400, 'Pick how often the recurring work repeats');
 
   // Source: an agent can only attach their own lead / sale.
-  let source = 'manual', leadId: number | null = null, saleId: number | null = null;
+  let source = 'manual', leadId: number | null = null, saleId: string | null = null;
   if (b.lead_id) {
     const lead = await queryOne<any>(`SELECT id, assigned_agent_id FROM dialer_leads WHERE id = $1`, [Number(b.lead_id)]);
     if (!lead) throw new HttpError(404, 'Lead not found');
@@ -91,10 +91,13 @@ export const POST = handler(async (request: NextRequest) => {
     source = 'lead'; leadId = Number(lead.id);
   }
   if (b.sale_id) {
-    const sale = await queryOne<any>(`SELECT id, agent_id FROM sales WHERE id = $1`, [Number(b.sale_id)]);
+    // sales.id is a UUID
+    const saleIdIn = String(b.sale_id);
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(saleIdIn)) throw new HttpError(400, 'Invalid sale');
+    const sale = await queryOne<any>(`SELECT id, agent_id FROM sales WHERE id = $1`, [saleIdIn]);
     if (!sale) throw new HttpError(404, 'Sale not found');
     if (v.role === 'agent' && Number(sale.agent_id) !== v.userId) throw new HttpError(403, 'That sale isn’t yours');
-    source = 'sale'; saleId = Number(sale.id);
+    source = 'sale'; saleId = String(sale.id);
   }
 
   const hr = await queryOne<{ id: string }>(`SELECT id FROM users WHERE role = 'hr' AND COALESCE(is_active, true) ORDER BY id LIMIT 1`);

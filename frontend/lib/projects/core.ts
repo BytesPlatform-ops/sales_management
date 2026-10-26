@@ -61,7 +61,7 @@ export interface ProjectRow {
   id: number; ticket_no: string; title: string; description: string; service_type: string; priority: string;
   status: Status; project_type: 'one_time' | 'recurring'; recurrence: string | null; recurrence_end: string | null;
   client_name: string; client_company: string | null; client_email: string | null; client_phone: string | null; client_timezone: string | null;
-  deal_value: string | null; source: string; lead_id: number | null; sale_id: number | null;
+  deal_value: string | null; source: string; lead_id: number | null; sale_id: string | null;
   created_by: number; supervisor_id: number | null; start_date: string | null; deadline: string | null;
   expected_delivery: string | null; delivered_at: string | null; closed_at: string | null; created_at: string; updated_at: string;
 }

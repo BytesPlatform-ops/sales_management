@@ -16,7 +16,7 @@ interface SourceLead {
   agent_name: string | null; existing_ticket: string | null;
 }
 interface SourceSale {
-  id: number; customer_name: string; total_deal_value: number; amount_collected: number; status: string; approval_status: string;
+  id: string; customer_name: string; total_deal_value: number; amount_collected: number; status: string; approval_status: string;
   created_at: string; agent_name: string | null; existing_ticket: string | null;
 }
 
@@ -52,7 +52,7 @@ function NewProjectForm() {
     user && user.role !== 'developer' ? '/api/projects/sources' : null
   );
   const [form, setForm] = useState(EMPTY);
-  const [source, setSource] = useState<{ kind: 'lead' | 'sale'; id: number } | null>(null);
+  const [source, setSource] = useState<{ kind: 'lead' | 'sale'; id: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -60,10 +60,11 @@ function NewProjectForm() {
 
   const set = <K extends keyof typeof EMPTY>(k: K, v: (typeof EMPTY)[K]) => setForm((f) => ({ ...f, [k]: v }));
 
-  const pick = (kind: 'lead' | 'sale', id: number) => {
+  // Lead ids are numbers and sale ids are UUIDs, so ids are compared as strings.
+  const pick = (kind: 'lead' | 'sale', id: string) => {
     if (!sources) return;
     if (kind === 'lead') {
-      const l = sources.leads.find((x) => x.id === id);
+      const l = sources.leads.find((x) => String(x.id) === id);
       if (!l) return;
       setSource({ kind, id });
       setForm((f) => ({
@@ -78,7 +79,7 @@ function NewProjectForm() {
         description: f.description || l.notes || '',
       }));
     } else {
-      const s = sources.sales.find((x) => x.id === id);
+      const s = sources.sales.find((x) => String(x.id) === id);
       if (!s) return;
       setSource({ kind, id });
       setForm((f) => ({
@@ -94,8 +95,8 @@ function NewProjectForm() {
   useEffect(() => {
     if (!sources || preselected.current) return;
     preselected.current = true;
-    const lead = Number(sp.get('lead_id'));
-    const sale = Number(sp.get('sale_id'));
+    const lead = sp.get('lead_id');
+    const sale = sp.get('sale_id');
     if (lead) pick('lead', lead);
     else if (sale) pick('sale', sale);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -103,7 +104,7 @@ function NewProjectForm() {
 
   const chosen = useMemo(() => {
     if (!source || !sources) return null;
-    return source.kind === 'lead' ? sources.leads.find((l) => l.id === source.id) : sources.sales.find((s) => s.id === source.id);
+    return source.kind === 'lead' ? sources.leads.find((l) => String(l.id) === source.id) : sources.sales.find((s) => String(s.id) === source.id);
   }, [source, sources]);
 
   const [now, setNow] = useState(Date.now());
@@ -129,7 +130,7 @@ function NewProjectForm() {
         ...form,
         title: form.title.trim(),
         deal_value: form.deal_value ? Number(form.deal_value) : null,
-        lead_id: source?.kind === 'lead' ? source.id : undefined,
+        lead_id: source?.kind === 'lead' ? Number(source.id) : undefined,
         sale_id: source?.kind === 'sale' ? source.id : undefined,
         recurrence: form.project_type === 'recurring' ? form.recurrence : undefined,
         recurrence_end: form.project_type === 'recurring' ? form.recurrence_end || null : undefined,
@@ -174,7 +175,7 @@ function NewProjectForm() {
                   onChange={(e) => {
                     const [k, id] = e.target.value.split(':');
                     if (!k) { setSource(null); return; }
-                    pick(k as 'lead' | 'sale', Number(id));
+                    pick(k as 'lead' | 'sale', id);
                   }}>
                   <option value="">— Not from a lead or sale —</option>
                   {leads.length > 0 && (

@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS projects (
   -- where it came from
   source VARCHAR(20) NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'lead', 'sale')),
   lead_id INTEGER,                        -- dialer_leads.id
-  sale_id INTEGER,                        -- sales.id
+  sale_id UUID,                           -- sales.id (sales uses UUID keys)
 
   -- people
   created_by BIGINT NOT NULL,             -- agent (or HR) who opened the ticket
