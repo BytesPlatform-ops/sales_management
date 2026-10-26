@@ -16,7 +16,7 @@ export const GET = handler(async (request: NextRequest) => {
   const mine = v.role === 'agent';
   const [leads, sales] = await Promise.all([
     query<any>(
-      `SELECT l.id, l.firm_name, l.contact_person, l.phone_number, l.raw_data, l.state, l.pipeline_stage, l.deal_value, l.pipeline_notes,
+      `SELECT l.id, l.firm_name, l.contact_person, l.phone_number, l.raw_data, l.pipeline_stage, l.deal_value, l.pipeline_notes,
               u.full_name AS agent_name,
               (SELECT ticket_no FROM projects p WHERE p.lead_id = l.id ORDER BY p.id DESC LIMIT 1) AS existing_ticket
        FROM dialer_leads l LEFT JOIN users u ON u.id = l.assigned_agent_id
@@ -41,7 +41,7 @@ export const GET = handler(async (request: NextRequest) => {
   };
   return ok({
     leads: leads.map((l) => ({
-      id: l.id, firm_name: l.firm_name, contact_person: l.contact_person, phone_number: l.phone_number, state: l.state,
+      id: l.id, firm_name: l.firm_name, contact_person: l.contact_person, phone_number: l.phone_number, state: pick(l.raw_data, /^state$/i),
       email: pick(l.raw_data, /e-?mail/i), website: pick(l.raw_data, /website|url|web/i),
       pipeline_stage: l.pipeline_stage, deal_value: l.deal_value, notes: l.pipeline_notes, agent_name: l.agent_name, existing_ticket: l.existing_ticket,
     })),
