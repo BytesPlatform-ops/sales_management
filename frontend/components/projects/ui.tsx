@@ -92,17 +92,22 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: {
   open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; footer?: ReactNode; size?: 'sm' | 'md' | 'lg';
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  // Callers pass a new onClose every render; keep it in a ref so the effect below
+  // runs only on open/close. Otherwise every keystroke re-ran it and yanked focus
+  // back to the first field.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     if (!open) return;
     const prev = document.activeElement as HTMLElement | null;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCloseRef.current(); };
     document.addEventListener('keydown', onKey);
     const t = setTimeout(() => {
       const el = ref.current?.querySelector<HTMLElement>('[data-autofocus], input:not([type=hidden]), textarea, select, button');
       el?.focus();
     }, 20);
     return () => { document.removeEventListener('keydown', onKey); clearTimeout(t); prev?.focus?.(); };
-  }, [open, onClose]);
+  }, [open]);
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
