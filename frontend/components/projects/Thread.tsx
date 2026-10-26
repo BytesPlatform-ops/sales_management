@@ -37,7 +37,7 @@ export function Thread({ projectId, meId, onSystemMessage, className, refreshKey
     setMessages((prev) => {
       const map = new Map((prev || []).map((m) => [m.id, m]));
       for (const r of rows) map.set(r.id, r);
-      return [...map.values()].sort((a, b) => a.id - b.id);
+      return Array.from(map.values()).sort((a, b) => a.id - b.id);
     });
     lastId.current = Math.max(lastId.current, ...rows.map((r) => r.id));
   }, []);

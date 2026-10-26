@@ -23,7 +23,9 @@ import {
   Building2,
   Mail,
   ExternalLink,
+  FolderKanban,
 } from 'lucide-react';
+import Link from 'next/link';
 import { cn } from '@/lib/utils';
 
 const PIPELINE_STAGES = [
@@ -334,6 +336,14 @@ export default function AgentPipelinePage() {
                           <ExternalLink className="h-3 w-3" />{website}
                         </a>
                       )}
+                      <Link
+                        href={`/projects/new?lead_id=${lead.id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="ml-auto flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-indigo-600 text-white font-semibold hover:bg-indigo-700"
+                      >
+                        <FolderKanban className="h-3 w-3" />
+                        Open project ticket
+                      </Link>
                     </div>
 
                     {/* Call history note */}

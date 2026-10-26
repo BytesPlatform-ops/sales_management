@@ -58,7 +58,7 @@ export function initials(name: string | null | undefined) {
 }
 export function Avatar({ name, size = 'md', className }: { name: string | null | undefined; size?: 'sm' | 'md'; className?: string }) {
   const n = String(name || '?');
-  const color = AVATAR_COLORS[[...n].reduce((s, c) => s + c.charCodeAt(0), 0) % AVATAR_COLORS.length];
+  const color = AVATAR_COLORS[n.split("").reduce((s, c) => s + c.charCodeAt(0), 0) % AVATAR_COLORS.length];
   return (
     <span title={n} className={cn('inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-white ring-2 ring-white', color,
       size === 'sm' ? 'h-6 w-6 text-[10px]' : 'h-8 w-8 text-xs', className)}>

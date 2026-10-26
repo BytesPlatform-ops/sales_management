@@ -82,8 +82,8 @@ export default function ProjectPage() {
           <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
             className={cn('whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500',
               !LEFT_TABS.includes(t) && 'lg:hidden',
-              (tab === t || (LEFT_TABS.includes(t) && t === leftView && !rightMobile && false)) ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900',
-              // On desktop, a mobile-only tab may be selected: highlight the visible left view instead.
+              tab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900',
+              // On desktop a mobile-only tab may be selected: highlight the visible left view instead.
               rightMobile && t === 'thread' && 'lg:bg-white lg:text-gray-900 lg:shadow-sm')}>
             {TAB_LABELS[t]}
           </button>
@@ -105,7 +105,6 @@ export default function ProjectPage() {
 
           <div className={cn('space-y-4', leftView !== 'details' && 'hidden')}>
             <SectionCard title="Dates"><DatesEditor d={d} onChange={changed} /></SectionCard>
-            {p.project_type === 'recurring' && <SectionCard title="Recurring cycles"><Cycles d={d} onChange={changed} /></SectionCard>}
             <SectionCard title="Project & client details"><DetailsEditor d={d} onChange={changed} /></SectionCard>
           </div>
         </div>
