@@ -105,6 +105,10 @@ class ApiClient {
     return this.request<any[]>('/hr/agents');
   }
 
+  async getAgent(id: number) {
+    return this.request<any>(`/hr/agents/${id}`);
+  }
+
   async createAgent(data: {
     username: string;
     password: string;
@@ -115,6 +119,7 @@ class ApiClient {
     shift_start: string;
     shift_end: string;
     employment_type: 'full_time' | 'part_time';
+    date_of_joining?: string;
   }) {
     return this.request<any>('/hr/agents', {
       method: 'POST',
@@ -133,6 +138,17 @@ class ApiClient {
     shift_end?: string;
     employment_type?: 'full_time' | 'part_time';
     is_active?: boolean;
+    date_of_joining?: string;
+    date_of_birth?: string;
+    phone?: string;
+    personal_email?: string;
+    cnic?: string;
+    address?: string;
+    emergency_contact_name?: string;
+    emergency_contact_phone?: string;
+    bank_name?: string;
+    bank_account_title?: string;
+    bank_account_number?: string;
   }) {
     return this.request<any>(`/hr/agents/${id}`, {
       method: 'PUT',

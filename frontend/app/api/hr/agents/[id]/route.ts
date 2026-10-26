@@ -20,6 +20,26 @@ interface Agent {
   is_active: boolean;
 }
 
+// HR-editable personal/profile columns. Dates are returned as YYYY-MM-DD strings
+// (to_char) so pg doesn't shift them through a local-time Date.
+const PROFILE_TEXT_FIELDS = [
+  'phone',
+  'personal_email',
+  'cnic',
+  'address',
+  'emergency_contact_name',
+  'emergency_contact_phone',
+  'bank_name',
+  'bank_account_title',
+  'bank_account_number',
+] as const;
+const PROFILE_DATE_FIELDS = ['date_of_joining', 'date_of_birth'] as const;
+
+const PROFILE_SELECT = [
+  ...PROFILE_TEXT_FIELDS,
+  ...PROFILE_DATE_FIELDS.map((f) => `to_char(${f}, 'YYYY-MM-DD') AS ${f}`),
+].join(', ');
+
 // Helper to verify HR access
 async function verifyHRAccess(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -62,9 +82,10 @@ export async function GET(
       );
     }
 
-    const agent = await queryOne<Agent>(
+    const agent = await queryOne<Agent & Record<string, any>>(
       `SELECT id, username, full_name, extension_number, base_salary, 
-              sales_target, shift_start, shift_end, employment_type, is_active
+              sales_target, shift_start, shift_end, employment_type, is_active,
+              created_at, ${PROFILE_SELECT}
        FROM users 
        WHERE id = $1 AND role = 'agent'`,
       [agentId]
@@ -77,6 +98,49 @@ export async function GET(
       );
     }
 
+    // Month-to-date and lifetime activity for the profile page
+    const monthStart = `to_char(date_trunc('month', (NOW() AT TIME ZONE 'Asia/Karachi')), 'YYYY-MM-DD')::date`;
+
+    const attendance = await queryOne<Record<string, string>>(
+      `SELECT
+         COUNT(*) FILTER (WHERE status = 'on_time') AS on_time,
+         COUNT(*) FILTER (WHERE status = 'late') AS late,
+         COUNT(*) FILTER (WHERE status = 'half_day') AS half_day,
+         COUNT(*) FILTER (WHERE status = 'absent') AS absent
+       FROM attendance
+       WHERE user_id = $1 AND date >= ${monthStart}`,
+      [agentId]
+    );
+
+    const statsSql = (where: string) =>
+      `SELECT COALESCE(SUM(calls_count), 0) AS calls,
+              COALESCE(SUM(talk_time_seconds), 0) AS talk_time_seconds,
+              COALESCE(SUM(leads_count), 0) AS leads,
+              COUNT(*) AS days_worked
+       FROM daily_stats
+       WHERE user_id = $1 ${where}`;
+    const monthStats = await queryOne<Record<string, string>>(statsSql(`AND date >= ${monthStart}`), [agentId]);
+    const lifetimeStats = await queryOne<Record<string, string>>(statsSql(''), [agentId]);
+
+    const salesSql = (where: string) =>
+      `SELECT COUNT(*) AS count, COALESCE(SUM(amount_collected), 0) AS collected
+       FROM sales
+       WHERE agent_id = $1 AND approval_status = 'approved' ${where}`;
+    const monthSales = await queryOne<Record<string, string>>(
+      salesSql(`AND (created_at AT TIME ZONE 'Asia/Karachi')::date >= ${monthStart}`),
+      [agentId]
+    );
+    const lifetimeSales = await queryOne<Record<string, string>>(salesSql(''), [agentId]);
+
+    const toStats = (s: Record<string, string> | null, sales: Record<string, string> | null) => ({
+      calls: Number(s?.calls || 0),
+      talk_time_seconds: Number(s?.talk_time_seconds || 0),
+      leads: Number(s?.leads || 0),
+      days_worked: Number(s?.days_worked || 0),
+      sales_count: Number(sales?.count || 0),
+      sales_collected: Number(sales?.collected || 0),
+    });
+
     return NextResponse.json({
       status: 'success',
       data: {
@@ -84,6 +148,16 @@ export async function GET(
         id: Number(agent.id),
         base_salary: Number(agent.base_salary),
         sales_target: Number(agent.sales_target || 0),
+        summary: {
+          attendance_this_month: {
+            on_time: Number(attendance?.on_time || 0),
+            late: Number(attendance?.late || 0),
+            half_day: Number(attendance?.half_day || 0),
+            absent: Number(attendance?.absent || 0),
+          },
+          this_month: toStats(monthStats, monthSales),
+          lifetime: toStats(lifetimeStats, lifetimeSales),
+        },
       },
     });
   } catch (error) {
@@ -145,6 +219,16 @@ export async function PUT(
       employment_type,
       is_active,
     } = body;
+
+    for (const field of PROFILE_DATE_FIELDS) {
+      const value = body[field];
+      if (value && !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        return NextResponse.json(
+          { status: 'error', message: `Invalid ${field.replace(/_/g, ' ')}` },
+          { status: 400 }
+        );
+      }
+    }
 
     // Check if new username conflicts with existing (if changed)
     if (username && username !== existingAgent.username) {
@@ -221,6 +305,15 @@ export async function PUT(
       values.push(is_active);
     }
 
+    // Profile fields: empty string clears the value
+    for (const field of [...PROFILE_TEXT_FIELDS, ...PROFILE_DATE_FIELDS]) {
+      if (body[field] !== undefined) {
+        const value = typeof body[field] === 'string' ? body[field].trim() : body[field];
+        updates.push(`${field} = $${paramIndex++}`);
+        values.push(value === '' ? null : value);
+      }
+    }
+
     // Always update updated_at
     updates.push(`updated_at = CURRENT_TIMESTAMP`);
 
@@ -239,7 +332,8 @@ export async function PUT(
        SET ${updates.join(', ')}
        WHERE id = $${paramIndex}
        RETURNING id, username, full_name, extension_number, base_salary, 
-                 sales_target, shift_start, shift_end, employment_type, is_active`,
+                 sales_target, shift_start, shift_end, employment_type, is_active,
+                 ${PROFILE_SELECT}`,
       values
     );
 

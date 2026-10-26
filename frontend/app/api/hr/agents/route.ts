@@ -20,6 +20,7 @@ interface Agent {
   employment_type: string;
   is_active: boolean;
   created_at: string;
+  date_of_joining: string | null;
 }
 
 /**
@@ -79,7 +80,8 @@ export async function GET(request: NextRequest) {
     // Fetch all agents
     const agents = await query<Agent>(
       `SELECT id, username, full_name, extension_number, base_salary, 
-              sales_target, shift_start, shift_end, employment_type, is_active, created_at
+              sales_target, shift_start, shift_end, employment_type, is_active, created_at,
+              to_char(date_of_joining, 'YYYY-MM-DD') AS date_of_joining
        FROM users 
        WHERE role = 'agent'
        ORDER BY full_name ASC`
@@ -177,12 +179,20 @@ export async function POST(request: NextRequest) {
       shift_start,
       shift_end,
       employment_type,
+      date_of_joining,
     } = body;
 
     // Validate required fields
     if (!username || !password || !full_name || !extension_number || !base_salary) {
       return NextResponse.json(
         { status: 'error', message: 'Missing required fields' },
+        { status: 400 }
+      );
+    }
+
+    if (date_of_joining && !/^\d{4}-\d{2}-\d{2}$/.test(date_of_joining)) {
+      return NextResponse.json(
+        { status: 'error', message: 'Invalid date of joining' },
         { status: 400 }
       );
     }
@@ -220,10 +230,11 @@ export async function POST(request: NextRequest) {
     const result = await query<Agent>(
       `INSERT INTO users (
         username, password, full_name, extension_number, 
-        base_salary, sales_target, shift_start, shift_end, employment_type, role, is_active
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'agent', true)
+        base_salary, sales_target, shift_start, shift_end, employment_type, date_of_joining, role, is_active
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'agent', true)
       RETURNING id, username, full_name, extension_number, base_salary, 
-                sales_target, shift_start, shift_end, employment_type, is_active, created_at`,
+                sales_target, shift_start, shift_end, employment_type, is_active, created_at,
+                to_char(date_of_joining, 'YYYY-MM-DD') AS date_of_joining`,
       [
         username,
         passwordHash,
@@ -234,6 +245,7 @@ export async function POST(request: NextRequest) {
         shift_start || '09:00:00',
         shift_end || '18:00:00',
         employment_type || 'full_time',
+        date_of_joining || null,
       ]
     );
 

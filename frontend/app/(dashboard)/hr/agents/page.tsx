@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { api } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,9 +13,8 @@ import {
   TableHead,
   TableCell,
 } from '@/components/ui/table';
-import { formatCurrency } from '@/lib/utils';
-import { Plus, Search, Edit, Trash2, X, Clock, DollarSign, Target, UserCheck, UserX, GraduationCap, Headphones } from 'lucide-react';
-import Link from 'next/link';
+import { formatCurrency, formatDateOnly } from '@/lib/utils';
+import { Plus, Search, Edit, Trash2, X, Clock, DollarSign, Target, UserCheck, UserX, GraduationCap, Headphones, CalendarDays } from 'lucide-react';
 
 interface AgentForm {
   username: string;
@@ -26,6 +26,7 @@ interface AgentForm {
   shift_start: string;
   shift_end: string;
   employment_type: 'full_time' | 'part_time';
+  date_of_joining: string;
 }
 
 interface Agent {
@@ -40,6 +41,7 @@ interface Agent {
   employment_type: string;
   is_active: boolean;
   created_at: string;
+  date_of_joining: string | null;
   todayAttendance: { status: string; checkInTime: string } | null;
 }
 
@@ -53,7 +55,12 @@ const initialFormState: AgentForm = {
   shift_start: '21:00',
   shift_end: '05:00',
   employment_type: 'full_time',
+  date_of_joining: '',
 };
+
+// Today's date in PKT as YYYY-MM-DD
+const todayPKT = () =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi' }).format(new Date());
 
 export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -93,7 +100,7 @@ export default function AgentsPage() {
   // Open Create Modal
   const openCreateModal = () => {
     setModalMode('create');
-    setForm(initialFormState);
+    setForm({ ...initialFormState, date_of_joining: todayPKT() });
     setEditingAgent(null);
     setError('');
     setShowModal(true);
@@ -113,6 +120,7 @@ export default function AgentsPage() {
       shift_start: agent.shift_start?.slice(0, 5) || '21:00',
       shift_end: agent.shift_end?.slice(0, 5) || '05:00',
       employment_type: agent.employment_type as 'full_time' | 'part_time',
+      date_of_joining: agent.date_of_joining || '',
     });
     setError('');
     setShowModal(true);
@@ -151,6 +159,7 @@ export default function AgentsPage() {
           shift_start: form.shift_start + ':00',
           shift_end: form.shift_end + ':00',
           employment_type: form.employment_type,
+          date_of_joining: form.date_of_joining || undefined,
         });
 
         if (response.status === 'success') {
@@ -172,6 +181,7 @@ export default function AgentsPage() {
         if (form.shift_start + ':00' !== editingAgent.shift_start) updateData.shift_start = form.shift_start + ':00';
         if (form.shift_end + ':00' !== editingAgent.shift_end) updateData.shift_end = form.shift_end + ':00';
         if (form.employment_type !== editingAgent.employment_type) updateData.employment_type = form.employment_type;
+        if (form.date_of_joining !== (editingAgent.date_of_joining || '')) updateData.date_of_joining = form.date_of_joining;
 
         const response = await api.updateAgent(editingAgent.id, updateData);
 
@@ -276,6 +286,7 @@ export default function AgentsPage() {
               <TableRow className="bg-gray-50">
                 <TableHead>Agent</TableHead>
                 <TableHead>Extension</TableHead>
+                <TableHead>Joined</TableHead>
                 <TableHead>Shift Timing</TableHead>
                 <TableHead>Base Salary</TableHead>
                 <TableHead>
@@ -307,9 +318,9 @@ export default function AgentsPage() {
                       </div>
                       <div>
                         <Link
-                          href={`/hr/agents/${agent.id}/calls`}
+                          href={`/hr/agents/${agent.id}`}
                           className="font-medium text-gray-900 hover:text-indigo-600 hover:underline underline-offset-2"
-                          title="View calls and recordings"
+                          title="View agent profile"
                         >
                           {agent.full_name}
                         </Link>
@@ -321,6 +332,13 @@ export default function AgentsPage() {
                     <span className="font-mono bg-gray-100 px-2.5 py-1 rounded text-sm">
                       {agent.extension_number}
                     </span>
+                  </TableCell>
+                  <TableCell>
+                    {agent.date_of_joining ? (
+                      <span className="text-sm text-gray-600">{formatDateOnly(agent.date_of_joining)}</span>
+                    ) : (
+                      <span className="text-gray-400 text-sm">Not set</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1.5 text-sm text-gray-600">
@@ -495,6 +513,19 @@ export default function AgentsPage() {
                       onChange={(e) => setForm({ ...form, extension_number: e.target.value })}
                       placeholder="102"
                       required
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <CalendarDays className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
+                      Date of Joining
+                    </label>
+                    <Input
+                      type="date"
+                      value={form.date_of_joining}
+                      onChange={(e) => setForm({ ...form, date_of_joining: e.target.value })}
                     />
                   </div>
                 </div>

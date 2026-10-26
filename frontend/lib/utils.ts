@@ -29,6 +29,11 @@ export function formatDate(date: string | Date): string {
   }).format(new Date(date));
 }
 
+// Format a YYYY-MM-DD calendar date without shifting it through UTC
+export function formatDateOnly(date: string): string {
+  return formatDate(`${date}T00:00:00`);
+}
+
 export function formatTime(date: string | Date): string {
   return new Intl.DateTimeFormat('en-US', {
     hour: '2-digit',
