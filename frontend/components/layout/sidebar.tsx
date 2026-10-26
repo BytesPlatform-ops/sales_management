@@ -28,6 +28,7 @@ import {
   BookOpen,
   Zap,
   Mic,
+  FileText,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -127,6 +128,12 @@ const navItems: NavItem[] = [
     label: 'Payroll',
     href: '/hr/payroll',
     icon: DollarSign,
+    roles: ['hr'],
+  },
+  {
+    label: 'Salary Reports',
+    href: '/hr/payroll-reports',
+    icon: FileText,
     roles: ['hr'],
   },
   {

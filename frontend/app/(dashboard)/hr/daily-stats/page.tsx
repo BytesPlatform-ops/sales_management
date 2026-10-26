@@ -23,8 +23,10 @@ import {
   TrendingUp,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Zap,
   Plus,
+  BarChart3,
 } from 'lucide-react';
 
 interface AgentDailyStats {
@@ -188,6 +190,63 @@ export default function HRDailyStatsPage() {
     leads: [],
     loading: false,
   });
+
+  // Calls Per Hour panel state (real hourly breakdown from call_logs)
+  interface HourAgent {
+    agentId: number;
+    agentName: string;
+    extension: string;
+    callCount: number;
+    talkTimeSeconds: number;
+  }
+  interface HourBucket {
+    hour: number;
+    label: string;
+    totalCalls: number;
+    totalTalkTimeSeconds: number;
+    agents: HourAgent[];
+  }
+  const [callsPanelOpen, setCallsPanelOpen] = useState(false);
+  const [cphHours, setCphHours] = useState<HourBucket[]>([]);
+  const [cphLoading, setCphLoading] = useState(false);
+  const [cphGeneratedAt, setCphGeneratedAt] = useState<Date | null>(null);
+  const [expandedHour, setExpandedHour] = useState<number | null>(null);
+
+  const fetchCallsPerHour = useCallback(async () => {
+    try {
+      setCphLoading(true);
+      const response = await api.getCallsPerHour(selectedDate);
+      const hours = ((response as any).hours || []) as HourBucket[];
+      setCphHours(hours);
+      setCphGeneratedAt(new Date());
+    } catch (error) {
+      console.error('Failed to fetch calls per hour:', error);
+      setCphHours([]);
+    } finally {
+      setCphLoading(false);
+    }
+  }, [selectedDate]);
+
+  // Toggle the panel; fetch fresh data whenever it is opened.
+  const toggleCallsPanel = () => {
+    const next = !callsPanelOpen;
+    setCallsPanelOpen(next);
+    if (next) fetchCallsPerHour();
+  };
+
+  // Re-fetch when the date changes while the panel is open.
+  useEffect(() => {
+    if (callsPanelOpen) fetchCallsPerHour();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate]);
+
+  // Auto-refresh the hourly breakdown every hour while the panel is open
+  // (call_logs is fed by the 3CX cron, so hourly re-pulls pick up new calls).
+  useEffect(() => {
+    if (!callsPanelOpen) return;
+    const interval = setInterval(fetchCallsPerHour, 60 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [callsPanelOpen, fetchCallsPerHour]);
 
   const fetchData = useCallback(async () => {
     try {
@@ -366,8 +425,144 @@ export default function HRDailyStatsPage() {
               </Button>
             )}
           </div>
+
+          {/* Calls Per Hour toggle */}
+          <Button
+            variant={callsPanelOpen ? 'primary' : 'outline'}
+            size="sm"
+            onClick={toggleCallsPanel}
+            className="gap-2"
+          >
+            <BarChart3 className="h-4 w-4" />
+            Calls / Hour
+            <ChevronDown
+              className={`h-4 w-4 transition-transform ${callsPanelOpen ? 'rotate-180' : ''}`}
+            />
+          </Button>
         </div>
       </div>
+
+      {/* Calls Per Hour Panel */}
+      {callsPanelOpen && (
+        <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50">
+            <div className="flex items-center gap-2">
+              <BarChart3 className="h-4 w-4 text-blue-600" />
+              <h3 className="text-sm font-semibold text-gray-900">
+                Calls Per Hour
+              </h3>
+              <span className="text-xs text-gray-400">
+                {cphHours.reduce((s, h) => s + h.totalCalls, 0).toLocaleString()} calls
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              {cphGeneratedAt && (
+                <span className="text-xs text-gray-400">
+                  Updated {formatTime(cphGeneratedAt.toISOString())}
+                </span>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={fetchCallsPerHour}
+                disabled={cphLoading}
+                className="gap-1.5 h-7"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${cphLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+            </div>
+          </div>
+
+          {cphLoading && cphHours.length === 0 ? (
+            <div className="px-4 py-10 text-center">
+              <RefreshCw className="h-6 w-6 animate-spin mx-auto text-gray-400" />
+              <p className="text-gray-500 mt-2 text-sm">Loading hourly breakdown…</p>
+            </div>
+          ) : cphHours.length === 0 ? (
+            <div className="px-4 py-10 text-center">
+              <Phone className="h-10 w-10 mx-auto text-gray-300" />
+              <p className="text-gray-500 mt-2 text-sm">No calls recorded for this date</p>
+            </div>
+          ) : (
+            <div className="divide-y">
+              {cphHours.map((bucket) => {
+                const isOpen = expandedHour === bucket.hour;
+                const maxCalls = Math.max(...cphHours.map((h) => h.totalCalls), 1);
+                return (
+                  <div key={bucket.hour}>
+                    {/* Hour row (the "clock") */}
+                    <button
+                      onClick={() =>
+                        setExpandedHour(isOpen ? null : bucket.hour)
+                      }
+                      className="w-full flex items-center gap-4 px-4 py-3 hover:bg-gray-50 transition-colors text-left"
+                    >
+                      <ChevronRight
+                        className={`h-4 w-4 text-gray-400 flex-shrink-0 transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                      />
+                      <div className="w-16 font-semibold text-gray-900 text-sm flex-shrink-0">
+                        {bucket.label}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-blue-500 rounded-full transition-all"
+                            style={{ width: `${(bucket.totalCalls / maxCalls) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                      <div className="w-24 text-right flex-shrink-0">
+                        <span className="font-semibold text-gray-900 text-sm">
+                          {bucket.totalCalls.toLocaleString()}
+                        </span>
+                        <span className="text-gray-400 text-xs"> calls</span>
+                      </div>
+                    </button>
+
+                    {/* Per-agent breakdown for the hour */}
+                    {isOpen && (
+                      <div className="bg-gray-50 px-4 pb-3">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-xs text-gray-500">
+                              <th className="text-left font-medium py-2 pl-10">Agent</th>
+                              <th className="text-left font-medium py-2">Ext.</th>
+                              <th className="text-right font-medium py-2">Talk Time</th>
+                              <th className="text-right font-medium py-2 pr-2">Calls</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {bucket.agents.map((agent) => (
+                              <tr
+                                key={agent.agentId}
+                                className="border-t border-gray-200"
+                              >
+                                <td className="py-2 pl-10 text-gray-900 font-medium">
+                                  {agent.agentName}
+                                </td>
+                                <td className="py-2 text-gray-500">
+                                  {agent.extension}
+                                </td>
+                                <td className="py-2 text-right text-gray-600">
+                                  {formatDurationHuman(agent.talkTimeSeconds)}
+                                </td>
+                                <td className="py-2 pr-2 text-right font-semibold text-gray-900">
+                                  {agent.callCount.toLocaleString()}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Stats Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

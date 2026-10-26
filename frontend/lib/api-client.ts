@@ -222,6 +222,63 @@ class ApiClient {
     return this.request<any>(`/hr/daily-stats${query}`);
   }
 
+  // Calls Per Hour breakdown - HR (real hourly call counts from call_logs)
+  async getCallsPerHour(date?: string) {
+    const query = date ? `?date=${date}` : '';
+    return this.request<any>(`/hr/calls-per-hour${query}`);
+  }
+
+  // Month-End Payroll Reports - HR
+  async getPayrollReports(month: string) {
+    return this.request<any>(`/hr/payroll-reports?month=${month}`);
+  }
+
+  async getPayrollReport(agentId: number, month: string) {
+    return this.request<any>(`/hr/payroll-reports/${agentId}?month=${month}`);
+  }
+
+  // PDF/ZIP download URLs (token is passed via query for direct <a>/window.open,
+  // OR fetched as a blob using the Authorization header via downloadPayrollFile).
+  payrollPdfUrl(agentId: number, month: string) {
+    return `/api/hr/payroll-reports/${agentId}/pdf?month=${month}`;
+  }
+  payrollCombinedPdfUrl(month: string) {
+    return `/api/hr/payroll-reports/pdf/all?month=${month}`;
+  }
+  payrollZipUrl(month: string) {
+    return `/api/hr/payroll-reports/zip?month=${month}`;
+  }
+
+  // Downloads a payroll export as a blob using the Authorization header,
+  // then triggers a browser save. Returns nothing; throws on failure.
+  // Note: `path` here is a full absolute path already including `/api`
+  // (from payrollPdfUrl/payrollCombinedPdfUrl/payrollZipUrl), so it must NOT
+  // be prefixed with API_BASE again.
+  async downloadPayrollFile(path: string, filename: string): Promise<void> {
+    const res = await fetch(path, {
+      headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
+    });
+    if (!res.ok) {
+      let msg = 'Download failed';
+      try {
+        const j = await res.json();
+        msg = j.message || msg;
+      } catch {
+        /* binary error */
+      }
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
   // Performance Targets - HR
   async getTargets() {
     return this.request<any[]>('/hr/targets');
