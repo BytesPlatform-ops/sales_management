@@ -33,7 +33,7 @@ interface EvaluationRow {
 function yesterdayShift(): string {
   const now = new Date();
   const d = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
-  const hour = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Karachi', hour: 'numeric', hour12: false }).format(now), 10);
+  const hour = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Karachi', hour: 'numeric', hourCycle: 'h23' }).format(now), 10) % 24;
   const [y, m, day] = d.split('-').map(Number);
   const offset = hour < 6 ? 2 : 1;
   const t = new Date(y, m - 1, day - offset);

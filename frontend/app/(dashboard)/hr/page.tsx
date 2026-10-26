@@ -47,14 +47,16 @@ function getDefaultWorkingDate(): string {
     day: '2-digit',
   });
 
+  // hourCycle h23: with hour12:false some browsers (Chrome) print midnight as "24",
+  // which skipped the before-6-AM check and put 12-1 AM entries on the next day
   const hourFormatter = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Karachi',
     hour: 'numeric',
-    hour12: false,
+    hourCycle: 'h23',
   });
 
   const dateStr = dateFormatter.format(now); // Returns YYYY-MM-DD
-  const hour = parseInt(hourFormatter.format(now), 10);
+  const hour = parseInt(hourFormatter.format(now), 10) % 24;
 
   // If it's before 6 AM, we're still in yesterday's shift
   if (hour < 6) {
@@ -67,6 +69,19 @@ function getDefaultWorkingDate(): string {
   return dateStr;
 }
 
+/**
+ * Shift a meeting entry defaults to. Between 6 AM and the 9 PM shift start HR is
+ * entering time for last night's shift, so default to it (the picker still allows today).
+ */
+function getDefaultMeetingDate(): string {
+  const working = getDefaultWorkingDate();
+  const hour = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Karachi', hour: 'numeric', hourCycle: 'h23' }).format(new Date()), 10) % 24;
+  if (hour < 6 || hour >= 21) return working;
+  const [year, month, day] = working.split('-').map(Number);
+  const prev = new Date(year, month - 1, day - 1);
+  return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-${String(prev.getDate()).padStart(2, '0')}`;
+}
+
 export default function HRDashboard() {
   const { user } = useAuth();
   const [data, setData] = useState<HRDashboardData | null>(null);
@@ -77,6 +92,7 @@ export default function HRDashboard() {
     agentId: number | null;
     agentName: string;
     durationMinutes: string;
+    date: string; // shift date (YYYY-MM-DD) the time is credited to
     mode: 'add' | 'subtract';
     loading: boolean;
   }>({
@@ -84,6 +100,7 @@ export default function HRDashboard() {
     agentId: null,
     agentName: '',
     durationMinutes: '',
+    date: '',
     mode: 'add',
     loading: false,
   });
@@ -132,6 +149,7 @@ export default function HRDashboard() {
       agentId,
       agentName,
       durationMinutes: '',
+      date: getDefaultMeetingDate(),
       mode,
       loading: false,
     });
@@ -144,6 +162,7 @@ export default function HRDashboard() {
       agentId: null,
       agentName: '',
       durationMinutes: '',
+      date: '',
       mode: 'add',
       loading: false,
     });
@@ -151,7 +170,7 @@ export default function HRDashboard() {
 
   // Submit meeting time
   const submitMeetingTime = async () => {
-    if (!meetingPopover.agentId || !meetingPopover.durationMinutes) return;
+    if (!meetingPopover.agentId || !meetingPopover.durationMinutes || !meetingPopover.date) return;
 
     setMeetingPopover((prev) => ({ ...prev, loading: true }));
 
@@ -165,19 +184,16 @@ export default function HRDashboard() {
       // Negative minutes => subtract
       const durationMinutes = meetingPopover.mode === 'subtract' ? -magnitude : magnitude;
 
-      // Always use today's date for meeting time
-      const todayDate = getDefaultWorkingDate();
-
       const response = await api.addMeetingTime(
         meetingPopover.agentId,
-        todayDate,
+        meetingPopover.date,
         durationMinutes,
         '' // No reason for quick entry
       );
 
       if (response?.status === 'success') {
         const verb = meetingPopover.mode === 'subtract' ? 'subtracted from' : 'added to';
-        showToast(`${magnitude} mins ${verb} ${meetingPopover.agentName}'s shift`, 'success');
+        showToast(`${magnitude} mins ${verb} ${meetingPopover.agentName}'s shift (${meetingPopover.date})`, 'success');
         // Refresh data to show updated talk time
         await fetchData();
         closeMeetingPopover();
@@ -444,6 +460,25 @@ export default function HRDashboard() {
                 placeholder="e.g., 30"
                 autoFocus
               />
+
+              <label className="block text-sm font-medium text-gray-700 mb-2 mt-4">
+                Shift Date
+              </label>
+              <input
+                type="date"
+                value={meetingPopover.date}
+                max={getDefaultWorkingDate()}
+                onChange={(e) =>
+                  setMeetingPopover((prev) => ({
+                    ...prev,
+                    date: e.target.value,
+                  }))
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="text-xs text-gray-500 mt-1.5">
+                Defaults to last night&apos;s shift during the day, and to tonight&apos;s once the shift starts (9 PM PKT). Time after 12 AM belongs to the shift that started the evening before.
+              </p>
             </div>
 
             {/* Footer */}
@@ -459,7 +494,7 @@ export default function HRDashboard() {
               <Button
                 size="sm"
                 onClick={submitMeetingTime}
-                disabled={!meetingPopover.durationMinutes || meetingPopover.loading}
+                disabled={!meetingPopover.durationMinutes || !meetingPopover.date || meetingPopover.loading}
                 className="bg-blue-600 hover:bg-blue-700"
               >
                 {meetingPopover.loading ? (

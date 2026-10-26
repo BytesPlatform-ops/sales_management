@@ -36,11 +36,11 @@ function getWorkingDate(dateStr?: string): string {
   const hourFormatter = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Karachi',
     hour: 'numeric',
-    hour12: false,
+    hourCycle: 'h23',
   });
 
   const currentDate = dateFormatter.format(now); // Returns YYYY-MM-DD
-  const hour = parseInt(hourFormatter.format(now), 10);
+  const hour = parseInt(hourFormatter.format(now), 10) % 24;
 
   // If it's before 6 AM, we're still in yesterday's shift
   if (hour < 6) {

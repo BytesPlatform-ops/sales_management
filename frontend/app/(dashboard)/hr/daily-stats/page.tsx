@@ -77,11 +77,11 @@ function getDefaultWorkingDate(): string {
   const hourFormatter = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Karachi',
     hour: 'numeric',
-    hour12: false,
+    hourCycle: 'h23',
   });
 
   const dateStr = dateFormatter.format(now); // Returns YYYY-MM-DD
-  const hour = parseInt(hourFormatter.format(now), 10);
+  const hour = parseInt(hourFormatter.format(now), 10) % 24;
 
   // If it's before 6 AM, we're still in yesterday's shift
   if (hour < 6) {
@@ -95,6 +95,20 @@ function getDefaultWorkingDate(): string {
 }
 
 /**
+ * Date the page opens on. Between 6 AM and the 9 PM shift start HR is reviewing
+ * last night, and today's shift has no data yet, so open on the previous shift.
+ * (The picker still allows today.)
+ */
+function getDefaultReviewDate(): string {
+  const working = getDefaultWorkingDate();
+  const hour = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Karachi', hour: 'numeric', hourCycle: 'h23' }).format(new Date()), 10) % 24;
+  if (hour < 6 || hour >= 21) return working;
+  const [year, month, day] = working.split('-').map(Number);
+  const prev = new Date(year, month - 1, day - 1);
+  return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-${String(prev.getDate()).padStart(2, '0')}`;
+}
+
+/**
  * Check if current time is past 10 PM (for alert highlighting)
  */
 function isPast10PM(): boolean {
@@ -102,9 +116,9 @@ function isPast10PM(): boolean {
   const hourFormatter = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Karachi',
     hour: 'numeric',
-    hour12: false,
+    hourCycle: 'h23',
   });
-  const hour = parseInt(hourFormatter.format(now), 10);
+  const hour = parseInt(hourFormatter.format(now), 10) % 24;
   return hour >= 22;
 }
 
@@ -168,7 +182,7 @@ function ProgressBar({
 
 export default function HRDailyStatsPage() {
   const { user } = useAuth();
-  const [selectedDate, setSelectedDate] = useState(getDefaultWorkingDate());
+  const [selectedDate, setSelectedDate] = useState(getDefaultReviewDate());
   const [apiDate, setApiDate] = useState<string | null>(null);
   const [data, setData] = useState<AgentDailyStats[]>([]);
   const [loading, setLoading] = useState(true);

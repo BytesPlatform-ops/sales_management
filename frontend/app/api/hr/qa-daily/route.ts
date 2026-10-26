@@ -29,11 +29,11 @@ function getWorkingDate(dateStr?: string): string {
   const hourFormatter = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Karachi',
     hour: 'numeric',
-    hour12: false,
+    hourCycle: 'h23',
   });
 
   const currentDate = dateFormatter.format(now); // YYYY-MM-DD
-  const hour = parseInt(hourFormatter.format(now), 10);
+  const hour = parseInt(hourFormatter.format(now), 10) % 24;
 
   if (hour < 6) {
     const [year, month, day] = currentDate.split('-').map(Number);
