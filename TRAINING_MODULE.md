@@ -21,7 +21,7 @@ node scripts/apply-training-migration.js
 The script reads `DB_HOST / DB_PORT / DB_USER / DB_PASSWORD` from the environment or `frontend/.env.local`.
 
 - `database/migrations/create_training_module.sql` — schema + config. **Additive only** (`training_*`, `ai_*`, `v_rep_ramp_status`); existing tables are only read. It grandfathers every existing agent as certified with ramp phase `FULL`, so **current pay does not change**.
-- `database/migrations/seed_training_content.sql` — the curriculum (3 tracks, 15 courses, 57 lessons, 129 questions, 63 flashcards, 17 objections, 19 classification rows, 11 roleplay scripts). Fill-only: re-running never overwrites trainer edits.
+- `database/migrations/seed_training_content.sql` — the curriculum (3 tracks, 15 courses, 64 lessons, 151 questions, 63 flashcards, 17 objections, 19 classification rows, 11 roleplay scripts). Fill-only: re-running never overwrites trainer edits.
 
 Then deploy the frontend as usual (Render: "Deploy latest commit").
 
@@ -116,5 +116,5 @@ A backup trigger is available at `GET /api/cron/training?job=tick|ramp|outbox|di
 
 - **C3.2 scoring table:** the PDF lost its column alignment. Two rows were reconstructed as "No capability statement: Website +1, Revamp +2, Contract-mgmt +1" and "Pure-federal: Website +1, Revamp +1, SEO −3, SMM −2, Contract-mgmt +2". Check `lib/training/classify.ts` and the classification drill rows.
 - **Placeholders:** `[PRICE]`, `[TIMELINE]`, `[TOKEN_FEE]` and `[CLOSER/SALES LEAD]` are still in the lessons. Fill them in from Content → Curriculum.
-- **Track 3:** "How the Company Works" is a placeholder with three empty courses.
+- **Track 3:** "How the Company Works" (Day 1, after Track 1) is written from how the system actually works: tools and a shift, attendance and the salary formula with a worked example, training-period pay, commission (5% when a deal is fully collected), the pipeline handover and logging sales. Fill in `[PAYDAY]` and `[COMMISSION PAYOUT]`: payroll doesn't include commission, so confirm how it is paid.
 - **Voice roleplay and the Batch API:** implemented, but only tested against a mock OpenAI server. Try them with the real key before relying on them.

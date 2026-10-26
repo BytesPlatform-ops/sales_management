@@ -18,8 +18,8 @@ BEGIN;
 -- ---------------------------------------------------------------- tracks
 INSERT INTO training_tracks (code, title, description, sort_order, is_placeholder, cert_code) VALUES
   ('T1', 'Product Knowledge', 'What we sell and to whom: government contractors, our services, the classification rubric and the 30-second website scan. Day 1 of onboarding; ends with the Product Certification (PRODUCT_CERT).', 1, false, 'PRODUCT_CERT'),
-  ('T2', 'Sales Coaching', 'How to run the call: mindset, call anatomy, openers, gatekeepers, voicemail, discovery, booking, objections, psychology, tonality, follow-up, CRM discipline and KPIs. Days 2–3 of onboarding; ends with the Live-Calling Certification (LIVE_CALL_CERT).', 2, false, 'LIVE_CALL_CERT'),
-  ('T3', 'How the Company Works', 'Placeholder track. Note to trainer: fill in the tools & logins, the handoff to fulfillment and the HR & pay policies later. Not required for any certification.', 3, true, NULL)
+  ('T2', 'Sales Coaching', 'How to run the call: mindset, call anatomy, openers, gatekeepers, voicemail, discovery, booking, objections, psychology, tonality, follow-up, CRM discipline and KPIs. Days 2–3 of onboarding; ends with the Live-Calling Certification (LIVE_CALL_CERT).', 3, false, 'LIVE_CALL_CERT'),
+  ('T3', 'How the Company Works', 'Your tools and a shift step by step, how attendance and pay are calculated (with a worked example), your training-period pay and commission, and what happens after a prospect says yes. Day 1 of onboarding.', 2, false, NULL)
 ON CONFLICT (code) DO NOTHING;
 
 -- ---------------------------------------------------------------- courses
@@ -38,9 +38,9 @@ FROM (VALUES
   ('T2', 'T2-C5', 'Psychology, tonality, follow-up, CRM & daily routine', 'Ethical persuasion, tonality drills, the follow-up cadence, disposition codes, the daily call-block routine and KPI targets.', 5, true, 3),
   ('T2', 'T2-C6', 'Scorecard, sample calls & roleplay practice', 'The 100-point scorecard, three annotated sample calls, and roleplay practice.', 6, true, 3),
   ('T2', 'T2-C7', 'Live-calling certification', 'Track 2 final exam + two graded roleplays (friendly and skeptical owner). Earns LIVE_CALL_CERT.', 7, true, 3),
-  ('T3', 'T3-C1', 'Tools & logins', 'Placeholder: to be filled in by the trainer.', 1, false, NULL::int),
-  ('T3', 'T3-C2', 'Handoff to fulfillment', 'Placeholder: to be filled in by the trainer.', 2, false, NULL::int),
-  ('T3', 'T3-C3', 'HR & pay policies', 'Placeholder: to be filled in by the trainer.', 3, false, NULL::int)
+  ('T3', 'T3-C1', 'Your tools & a shift', 'Logging in (your check-in), 3CX, every menu item, and a shift from start to finish.', 1, true, 1),
+  ('T3', 'T3-C2', 'Attendance & pay', 'Check-in rules, the 3-lates-free rule, how your daily pay is calculated (worked example), your training-period pay, commission and the Golden Ticket.', 2, true, 1),
+  ('T3', 'T3-C3', 'From interested lead to paid deal', 'The pipeline stages, handing over to the specialist, and logging sales and payments.', 3, true, 1)
 ) AS v(track_code, code, title, description, sort_order, required, day_number)
 JOIN training_tracks t ON t.code = v.track_code
 ON CONFLICT (code) DO NOTHING;
@@ -1632,34 +1632,295 @@ $md$,
   30, 2, true, 70, $j${"purpose":"exam","scenario_codes":["RP-EXAM-FRIENDLY","RP-EXAM-SKEPTICAL"],"min_sessions":2,"min_score":70}$j$::jsonb)
 ON CONFLICT (code) DO NOTHING;
 
--- T3-C1.1: Tools & logins
+-- T3-C1.1: Your tools & logins
 INSERT INTO training_lessons (course_id, code, type, title, body_md, est_minutes, sort_order, required, pass_pct, config)
-VALUES ((SELECT id FROM training_courses WHERE code = 'T3-C1'), 'T3-C1.1', 'reading', 'Tools & logins',
-$md$# Tools & logins
+VALUES ((SELECT id FROM training_courses WHERE code = 'T3-C1'), 'T3-C1.1', 'reading', 'Your tools & logins',
+$md$# Your tools & logins
 
-To be filled in by the trainer.
+Everything you need for the job lives in **one place: the Salary System** (this website). Your calls run through the **3CX phone system** on your own extension. This lesson shows you what each part is for.
+
+## Logging in
+
+- HR creates your account and gives you a **username** and **password**. Log in at the start of every shift.
+- **Your first login of the shift is your check-in.** The system records the time and decides whether you are on time, late or a half day (see the *Attendance & pay* course). Logging in again later in the same shift does not change it.
+- You don't need to log in on weekends. Shifts that start on **Saturday or Sunday** are not tracked ("Weekend – system paused").
+- Keep your password to yourself. Everything you do in the system (calls, notes, sales) is recorded under your name.
+
+## Your phone: 3CX
+
+- Every agent has their own **3CX extension** (HR sets it on your profile). Always call from your own extension.
+- 3CX automatically sends each call to the Salary System: the number, the time and the **duration**. That is how your **calls** and **talk time** are counted for pay, so there is nothing to type in.
+- Calls are **recorded** by 3CX. Recordings are used for coaching, quality checks and training.
+
+## The menu, item by item
+
+| Menu item | What it's for |
+|---|---|
+| **Dashboard** | Today's calls, talk time and performance score, what you have earned so far this month, your attendance and your "Golden Ticket" sales gauge |
+| **My Leads** | Your call list. Shows one lead at a time with the company details, AI talking points, a **Send Email** button and the outcome picker. **Submit & Next** saves the outcome and gives you the next lead |
+| **Pipeline** | Every lead you marked **Interested**: follow-up dates, deal value, notes, stage |
+| **Sales** | Log a closed deal and record the payments the client makes; shows your commission |
+| **Recordings** | Request the recording of a call (approved automatically or by HR), then play or download it |
+| **Daily Report** | Your call-quality scores from the automatic QA system |
+| **My Coaching** | Your weekly coaching report: strengths, what to fix and suggested scripts |
+| **Training** | This training: your path, today's drill, flashcards, roleplays, graded calls, scoreboard |
+| **Live Assist** | Help during a call: talking points, a 30-second website scan, which service to pitch, a follow-up email draft. Also opens from the **Live Assist** button inside My Leads |
+| **Leaderboard** | Today's and this month's team rankings |
+
+## Ground rules
+
+- **Before your Live-Calling Certification, My Leads is locked.** You practise with roleplays until you are certified (end of Day 3).
+- Write your call notes **before the next dial** (format: `Pain | Service | Site | Next`).
+- If something looks wrong (missing calls, wrong attendance, a lead with bad data), tell HR the same day. HR can correct attendance and add meeting time.
 $md$,
-  5, 1, false, 80, $j${}$j$::jsonb)
+  7, 1, true, 80, $j${}$j$::jsonb)
 ON CONFLICT (code) DO NOTHING;
 
--- T3-C2.1: Handoff to fulfillment
+-- T3-C1.2: A shift, step by step
 INSERT INTO training_lessons (course_id, code, type, title, body_md, est_minutes, sort_order, required, pass_pct, config)
-VALUES ((SELECT id FROM training_courses WHERE code = 'T3-C2'), 'T3-C2.1', 'reading', 'Handoff to fulfillment',
-$md$# Handoff to fulfillment
+VALUES ((SELECT id FROM training_courses WHERE code = 'T3-C1'), 'T3-C1.2', 'reading', 'A shift, step by step',
+$md$# A shift, step by step
 
-To be filled in by the trainer.
+Your shift times are on your profile. Most of the team works the **night shift, 9:00 PM – 5:00 AM Pakistan time (PKT)**, which is the US business day.
+
+## 1. Start of shift
+1. **Log in** (this is your check-in). Aim to be logged in **before** your shift starts; you have a 30-minute grace period.
+2. Open **Training → Today** and do the **5-minute daily drill** (flashcards, two objections, one lead to classify, a short tonality recording).
+3. Check **Pipeline** for follow-ups and callbacks due today.
+
+## 2. Call blocks
+1. Open **My Leads**. The system picks your next lead based on **US time zones**: it serves leads from the state where it's currently a good time to call (around 10:00–11:30 AM and 4:00–5:00 PM local), and older leads in the lunch hours.
+2. **Dial first, look while it rings**: glance at the firm name and narrative, dial, then open the website (or the **Live Assist** scan) while it rings.
+3. After the call, pick the **outcome(s)**: Interested, Not Interested, Gatekeeper, Owner Picked, Voicemail, Busy, Callback, Bad Number. You can pick more than one; the most important one decides where the lead goes.
+4. Write your note and press **Submit & Next**.
+
+## 3. What happens to a lead after your outcome
+
+| Outcome | Where the lead goes |
+|---|---|
+| Interested / Owner Picked | Your **Pipeline** (stage "New interested") |
+| Callback | Back to **you** for the callback |
+| Not interested, Voicemail, Busy, Do-not-call | **Recycle**: after ~15 days it goes to a **different** agent |
+| Gatekeeper, Bad number | **Dead** (can't be reached) |
+| Any lead after 3 attempts | **Dead** |
+
+## 4. During the shift
+- On a good call where the prospect gave an email, use **Send Email** on the lead card: a personalised follow-up goes out from your company email straight away.
+- Mark callbacks with the exact date, time and time zone.
+
+## 5. End of shift
+- Update **Pipeline** (stages, follow-up dates, deal values).
+- Your calls and talk time are already counted from 3CX; check your **Dashboard** to see today's score.
 $md$,
-  5, 1, false, 80, $j${}$j$::jsonb)
+  6, 2, true, 80, $j${}$j$::jsonb)
 ON CONFLICT (code) DO NOTHING;
 
--- T3-C3.1: HR & pay policies
+-- T3-C1-QUIZ: Tools & shift quiz
 INSERT INTO training_lessons (course_id, code, type, title, body_md, est_minutes, sort_order, required, pass_pct, config)
-VALUES ((SELECT id FROM training_courses WHERE code = 'T3-C3'), 'T3-C3.1', 'reading', 'HR & pay policies',
-$md$# HR & pay policies
-
-To be filled in by the trainer.
+VALUES ((SELECT id FROM training_courses WHERE code = 'T3-C1'), 'T3-C1-QUIZ', 'quiz', 'Tools & shift quiz',
+$md$**Tools & shift quiz.** Six quick questions on the system you will use every day. You need **80%**.
 $md$,
-  5, 1, false, 80, $j${}$j$::jsonb)
+  5, 3, true, 80, $j${}$j$::jsonb)
+ON CONFLICT (code) DO NOTHING;
+
+-- T3-C2.1: Shift timing, attendance & lates
+INSERT INTO training_lessons (course_id, code, type, title, body_md, est_minutes, sort_order, required, pass_pct, config)
+VALUES ((SELECT id FROM training_courses WHERE code = 'T3-C2'), 'T3-C2.1', 'reading', 'Shift timing, attendance & lates',
+$md$# Shift timing, attendance & lates
+
+Your pay for each working day depends on **two things**: whether you were there (**attendance**) and how much you did (**performance**). This lesson covers attendance.
+
+## How check-in works
+Your **first login of the shift** sets your attendance for that day, compared with your shift start time:
+
+| You log in… | Status | What it means for that day |
+|---|---|---|
+| Up to **30 minutes** after shift start | **On time** | Full day |
+| **31–90 minutes** late | **Late** | Full day, but it counts as a "late" (see below) |
+| **91+ minutes** late | **Half day** | That day pays **50%** |
+| You don't log in at all | **Absent** | That day pays **0** |
+
+## The "3 lates free" rule
+- Your **first 3 lates each month are free**.
+- From the **4th late** in the same month, **each late costs half a day's pay**.
+- Lates reset at the start of every month.
+
+## Weekends
+Shifts that start on **Saturday or Sunday** are not tracked: no attendance, no absences, no targets.
+
+## Mistakes and exceptions
+HR can review and correct attendance (for example if the system was down when you logged in) and can add **meeting time** for Zoom / Google Meet demos that 3CX doesn't see. Tell HR the same day.
+$md$,
+  5, 1, true, 80, $j${}$j$::jsonb)
+ON CONFLICT (code) DO NOTHING;
+
+-- T3-C2.2: How your salary is calculated
+INSERT INTO training_lessons (course_id, code, type, title, body_md, est_minutes, sort_order, required, pass_pct, config)
+VALUES ((SELECT id FROM training_courses WHERE code = 'T3-C2'), 'T3-C2.2', 'reading', 'How your salary is calculated',
+$md$# How your salary is calculated
+
+Your salary is **earned day by day**. The Dashboard shows what you have earned so far this month and a projection for the full month.
+
+## Step 1: your daily potential
+**Daily potential = monthly base salary ÷ working days (Monday–Friday) in the month.**
+
+Example: base salary **100,000**, a month with **20 working days** → daily potential **5,000**.
+
+## Step 2: your performance score for the day (0–100%)
+Two things are scored: **calls** and **talk time**. Your targets are set by HR and shown on your Dashboard. At the time of writing they are:
+
+| | Calls per day | Talk time per day |
+|---|---|---|
+| Full-time | 300 | 100 minutes |
+| Part-time | 75 | 30 minutes |
+
+- **Hit both targets → 100%.**
+- Otherwise: **calls are worth up to 60%** and **talk time up to 40%**, in proportion to how close you got.
+- **Talk time only counts calls of 30 seconds or more** (so very short calls don't add talk time, but they do count as calls).
+- Leads are shown on your Dashboard but are **not** part of the score.
+
+## Step 3: what you earn that day
+**Day's pay = daily potential × performance score × attendance** (on time/late = 100%, half day = 50%, absent = 0).
+
+## Worked example (full-time, daily potential 5,000)
+
+| Day | Attendance | Calls | Talk time | Score | Pay |
+|---|---|---|---|---|---|
+| Mon | On time | 300 | 105 min | both targets hit → **100%** | **5,000** |
+| Tue | On time | 240 | 70 min | 240/300 × 60% = 48% + 70/100 × 40% = 28% → **76%** | **3,800** |
+| Wed | Late (2nd this month, free) | 240 | 70 min | **76%** | **3,800** |
+| Thu | Half day | 300 | 100 min | **100%** | 5,000 × 50% = **2,500** |
+| Fri | Absent | 0 | 0 | — | **0** |
+
+That week earns **15,100**. If Wednesday had been your **4th** late of the month, half a day (**2,500**) would be deducted as well.
+
+## Things that surprise new agents
+- **Every working day counts.** A missed day earns 0, so attendance matters as much as performance.
+- **Talk time is usually what's short.** 300 calls with 90 minutes of talk scores 60% + 36% = **96%**, not 100%. Stay on good conversations; both targets must be hit for the full day.
+- **Days before your start date don't count against you.** If you join mid-month, your first month is simply the working days from your start.
+- **Payday and payment method:** your monthly payout is confirmed by HR from the Payroll page. [PAYDAY: ask HR for the payout date and method]
+$md$,
+  8, 2, true, 80, $j${}$j$::jsonb)
+ON CONFLICT (code) DO NOTHING;
+
+-- T3-C2.3: Your training period, commission & the Golden Ticket
+INSERT INTO training_lessons (course_id, code, type, title, body_md, est_minutes, sort_order, required, pass_pct, config)
+VALUES ((SELECT id FROM training_courses WHERE code = 'T3-C2'), 'T3-C2.3', 'reading', 'Your training period, commission & the Golden Ticket',
+$md$# Your training period, commission & the Golden Ticket
+
+## Your pay while you train (new agents)
+New agents start in a **training phase**. Your quota grows step by step, and you are **not penalised for missed targets** while you learn:
+
+| Phase | When | Targets | Effect on pay |
+|---|---|---|---|
+| **Training** | Days 1–3, until you pass the Live-Calling Certification | none (you practise) | every working day you attend counts as **100% performance** |
+| **Ramp 50%** | Days 1–30 after certification | half quota | **no missed-target deductions** (100% performance) |
+| **Ramp 75%** | Days 31–60 after certification | **75% of the normal targets** (e.g. 225 calls and 75 minutes) | scored against the reduced targets |
+| **Full** | From day 61 | full targets | normal pay rules |
+
+- **Attendance still counts** in every phase: absent days pay 0, half days pay 50%.
+- Your trainer can put you in **Supervised** for extra coaching. While supervised there are **no missed-target deductions**; your base pay is not affected.
+- Your current phase is shown on your Dashboard and on your training page.
+
+## Commission on sales
+- When a client buys, log the deal in **Sales** (customer name, total deal value, any first payment). **HR approves** each sale.
+- Record each payment the client makes on that sale; **HR approves each payment**.
+- When the **full deal value has been collected**, you earn **5% of the total deal value** as commission. Example: a **$2,000** website project → **$100** commission once the client has paid the whole $2,000. Commission is recorded on your Sales page, separately from your daily salary.
+- Partly paid deals don't pay commission yet; the Sales page shows how much has been collected.
+
+## The Golden Ticket
+HR can set a **daily sales target** for you. When the sales you log in a shift reach it, your Dashboard shows the **Golden Ticket**. It's recognition for a great day; it does **not** change your salary calculation.
+
+## Leaderboards and badges
+The **Leaderboard** ranks the team; the **Training scoreboard** ranks drills, roleplays and meetings booked. Badges (10-day drill streak, first booked meeting, Objection Master…) are for recognition and don't change pay.
+$md$,
+  6, 3, true, 80, $j${}$j$::jsonb)
+ON CONFLICT (code) DO NOTHING;
+
+-- T3-C2-QUIZ: Attendance & pay quiz
+INSERT INTO training_lessons (course_id, code, type, title, body_md, est_minutes, sort_order, required, pass_pct, config)
+VALUES ((SELECT id FROM training_courses WHERE code = 'T3-C2'), 'T3-C2-QUIZ', 'quiz', 'Attendance & pay quiz',
+$md$**Attendance & pay quiz.** Check you know exactly how your pay is worked out. You need **80%**.
+$md$,
+  6, 4, true, 80, $j${}$j$::jsonb)
+ON CONFLICT (code) DO NOTHING;
+
+-- T3-C3.1: From interested lead to booked meeting
+INSERT INTO training_lessons (course_id, code, type, title, body_md, est_minutes, sort_order, required, pass_pct, config)
+VALUES ((SELECT id FROM training_courses WHERE code = 'T3-C3'), 'T3-C3.1', 'reading', 'From interested lead to booked meeting',
+$md$# From interested lead to booked meeting
+
+Your job on the phone is to **book the meeting**, not to close the deal. This is what happens after a prospect says yes.
+
+## The pipeline
+When you mark a lead **Interested** (or **Owner Picked** with interest), it moves to your **Pipeline**. Each lead goes through five stages:
+
+| Stage | Meaning | Your job |
+|---|---|---|
+| **New interested** | They want to hear more | Book the meeting; send the invite while still on the phone |
+| **Follow up** | Meeting booked or a follow-up is due | Set the **follow-up date and time** (their time zone) |
+| **Proposal sent** | The specialist has sent the proposal / quote | Keep in touch, answer questions |
+| **Closed won** | They bought | Log the sale in **Sales** |
+| **Closed lost** | They said no | Note the reason |
+
+- **Overdue follow-ups are shown in red.** Clear them first at the start of every shift.
+- Add the **deal value** when you know it, so the team can see the pipeline total.
+
+## Handing over to the specialist
+The meeting is with **[CLOSER/SALES LEAD]**. A good handover means the specialist never has to ask the client the same questions again. Before the meeting, the lead's notes must answer:
+
+1. **Who** is attending (name, role, the partner/office manager if they're joining)
+2. **When**: day, time **and time zone**
+3. **Pain**: what's not working, in the client's own words
+4. **Service**: what you think they need (new website, revamp, SEO, SMM, automation, contract-management build)
+5. **Site**: what you noticed on their website
+6. **What they want out of the meeting** (ask: "What's the one thing you want to get out of that call?")
+
+Use the notes format: `Pain: … | Service: … | Site: … | Next: <day time TZ, attendees>`.
+
+## Confirming the meeting
+- Send the calendar invite during the call and ask "Can you see it?"
+- Send a confirmation email straight after (the **Send Email** button on the lead card does this).
+- Text reminders only if the client agreed to texts on the call.
+$md$,
+  6, 1, true, 80, $j${}$j$::jsonb)
+ON CONFLICT (code) DO NOTHING;
+
+-- T3-C3.2: Logging sales & payments
+INSERT INTO training_lessons (course_id, code, type, title, body_md, est_minutes, sort_order, required, pass_pct, config)
+VALUES ((SELECT id FROM training_courses WHERE code = 'T3-C3'), 'T3-C3.2', 'reading', 'Logging sales & payments',
+$md$# Logging sales & payments
+
+When a client buys, the sale and every payment are recorded in the system. This is what your **commission** is calculated from, so do it carefully.
+
+## Logging a sale
+1. Open **Sales → Log a sale**.
+2. Enter the **customer name**, the **total deal value**, and any **first payment** already received (it can't be more than the deal value).
+3. Submit. The sale shows as **pending** until **HR approves** it.
+
+## Recording payments
+- Clients often pay in parts (a deposit, then the balance). Each time the client pays, add the **payment** to that sale.
+- Each payment is **pending until HR approves it**. Only approved payments count as collected.
+- The Sales page shows each deal's **progress** (collected ÷ total).
+
+## When commission is paid
+- When the approved payments reach the **full deal value**, the sale becomes **completed** and you earn **5% of the total deal value**.
+- Commission is recorded on your **Sales** page ("commission earned"). It is separate from the daily salary calculation above. [COMMISSION PAYOUT: confirm with HR when and how commission is paid]
+
+## Common mistakes
+- **Logging a deal under the wrong amount**: always use the total agreed with the client, not the deposit.
+- **Logging a payment twice**: check the sale's history first. If you make a mistake, tell HR before they approve it.
+- **Not logging at all**: unlogged deals earn no commission.
+$md$,
+  5, 2, true, 80, $j${}$j$::jsonb)
+ON CONFLICT (code) DO NOTHING;
+
+-- T3-C3-QUIZ: Pipeline & sales quiz
+INSERT INTO training_lessons (course_id, code, type, title, body_md, est_minutes, sort_order, required, pass_pct, config)
+VALUES ((SELECT id FROM training_courses WHERE code = 'T3-C3'), 'T3-C3-QUIZ', 'quiz', 'Pipeline & sales quiz',
+$md$**Pipeline & sales quiz.** Six questions on the handover, the pipeline and how commission works. You need **80%**.
+$md$,
+  5, 3, true, 80, $j${}$j$::jsonb)
 ON CONFLICT (code) DO NOTHING;
 
 -- ---------------------------------------------------------------- question bank
@@ -1870,6 +2131,52 @@ FROM training_lessons l, (VALUES
   ('mcq', 'What earns full marks on "Next step"?', $j$["Specific day/time offered, invite sent, attendees confirmed","\"I'll call you sometime\"","Sending a brochure","Asking \"When are you free?\""]$j$::jsonb, $j${"correct":0}$j$::jsonb, 'D19: specific day/time offered; invite sent; attendees confirmed.', ARRAY['sales', 'D19']::text[])
 ) AS v(type, prompt, options_json, answer_json, explanation, tags)
 WHERE l.code = 'T2-C6-QUIZ'
+  AND NOT EXISTS (SELECT 1 FROM training_quiz_questions q WHERE q.lesson_id = l.id);
+
+-- T3-C1-QUIZ (7 questions)
+INSERT INTO training_quiz_questions (lesson_id, type, prompt, options_json, answer_json, explanation, tags)
+SELECT l.id, v.type, v.prompt, v.options_json, v.answer_json, v.explanation, v.tags
+FROM training_lessons l, (VALUES
+  ('mcq', 'What counts as your check-in for a shift?', $j$["Pressing a check-in button at any time","Your first login of the shift","Your first call in 3CX","HR marking you present"]$j$::jsonb, $j${"correct":1}$j$::jsonb, 'T3-C1.1: your first login of the shift records your attendance; logging in again later doesn''t change it.', ARRAY['company', 'T3-C1']::text[]),
+  ('mcq', 'Where do your call counts and talk time come from?', $j$["You type them into the Daily Report","HR enters them at the end of the shift","3CX sends every call on your extension to the system automatically","They are estimated from your leads"]$j$::jsonb, $j${"correct":2}$j$::jsonb, 'T3-C1.1: 3CX sends each call (number, time, duration) automatically; always call from your own extension.', ARRAY['company', 'T3-C1']::text[]),
+  ('true_false', 'Before your Live-Calling Certification you can call live leads from My Leads.', $j$["True","False"]$j$::jsonb, $j${"correct":1}$j$::jsonb, 'T3-C1.1: My Leads is locked until you are certified; you practise with roleplays first.', ARRAY['company', 'T3-C1']::text[]),
+  ('mcq', 'You mark a lead "Callback". Where does it go?', $j$["To a different agent after 15 days","Back to you for the callback","To the dead pool","To HR"]$j$::jsonb, $j${"correct":1}$j$::jsonb, 'T3-C1.2: callbacks come back to the same agent.', ARRAY['company', 'T3-C1']::text[]),
+  ('mcq', 'You mark a lead "Not interested". What happens to it?', $j$["It is deleted","It goes to your Pipeline","It is recycled to a different agent after about 15 days","It comes back to you tomorrow"]$j$::jsonb, $j${"correct":2}$j$::jsonb, 'T3-C1.2: not interested, voicemail, busy and do-not-call leads are recycled to a different agent after ~15 days.', ARRAY['company', 'T3-C1']::text[]),
+  ('mcq', 'Which menu item shows your call-quality scores from the automatic QA system?', $j$["Pipeline","Daily Report","Leaderboard","Sales"]$j$::jsonb, $j${"correct":1}$j$::jsonb, 'T3-C1.1: the Daily Report shows your QA call-quality scores; My Coaching has the weekly report.', ARRAY['company', 'T3-C1']::text[]),
+  ('true_false', 'Shifts that start on Saturday or Sunday are not tracked for attendance.', $j$["True","False"]$j$::jsonb, $j${"correct":0}$j$::jsonb, 'T3-C1.1: weekend shifts show "Weekend – system paused".', ARRAY['company', 'T3-C1']::text[])
+) AS v(type, prompt, options_json, answer_json, explanation, tags)
+WHERE l.code = 'T3-C1-QUIZ'
+  AND NOT EXISTS (SELECT 1 FROM training_quiz_questions q WHERE q.lesson_id = l.id);
+
+-- T3-C2-QUIZ (9 questions)
+INSERT INTO training_quiz_questions (lesson_id, type, prompt, options_json, answer_json, explanation, tags)
+SELECT l.id, v.type, v.prompt, v.options_json, v.answer_json, v.explanation, v.tags
+FROM training_lessons l, (VALUES
+  ('mcq', 'You log in 45 minutes after your shift starts. What is your status?', $j$["On time","Late","Half day","Absent"]$j$::jsonb, $j${"correct":1}$j$::jsonb, 'T3-C2.1: up to 30 minutes is on time, 31–90 minutes is late, 91+ is a half day.', ARRAY['company', 'T3-C2']::text[]),
+  ('mcq', 'How many lates per month are free?', $j$["None","1","3","5"]$j$::jsonb, $j${"correct":2}$j$::jsonb, 'T3-C2.1: the first 3 lates each month are free; from the 4th, each late costs half a day.', ARRAY['company', 'T3-C2']::text[]),
+  ('mcq', 'Your base salary is 110,000 and the month has 22 working days. What is your daily potential?', $j$["3,667","5,000","5,500","4,400"]$j$::jsonb, $j${"correct":1}$j$::jsonb, 'T3-C2.2: daily potential = base ÷ working days = 110,000 ÷ 22 = 5,000.', ARRAY['company', 'T3-C2']::text[]),
+  ('mcq', 'Full-time targets are 300 calls and 100 minutes. You made 150 calls and 50 minutes of talk. What is your performance score?', $j$["30%","50%","75%","100%"]$j$::jsonb, $j${"correct":1}$j$::jsonb, 'T3-C2.2: calls 150/300 × 60% = 30% plus talk 50/100 × 40% = 20% → 50%.', ARRAY['company', 'T3-C2']::text[]),
+  ('true_false', 'A 20-second call adds to your talk time.', $j$["True","False"]$j$::jsonb, $j${"correct":1}$j$::jsonb, 'T3-C2.2: talk time only counts calls of 30 seconds or more (the call still counts as a call).', ARRAY['company', 'T3-C2']::text[]),
+  ('mcq', 'You hit both targets but it was a half day. What do you earn for that day?', $j$["100% of your daily potential","50% of your daily potential","Nothing","75% of your daily potential"]$j$::jsonb, $j${"correct":1}$j$::jsonb, 'T3-C2.2: day''s pay = daily potential × performance (100%) × attendance (half day = 50%).', ARRAY['company', 'T3-C2']::text[]),
+  ('mcq', 'You are in Ramp 50% (first 30 days after certification) and miss your targets. What happens?', $j$["Normal deductions apply","No missed-target deductions: the day counts as 100% performance","You are moved back to training","Half your salary is deducted"]$j$::jsonb, $j${"correct":1}$j$::jsonb, 'T3-C2.3: in Training, Supervised and Ramp 50% there are no missed-target deductions; attendance still counts.', ARRAY['company', 'T3-C2']::text[]),
+  ('mcq', 'When do you earn commission on a sale?', $j$["As soon as you log the sale","When HR approves the sale","When the full deal value has been collected (5% of the total)","At the end of the month on all logged sales"]$j$::jsonb, $j${"correct":2}$j$::jsonb, 'T3-C2.3: commission is 5% of the total deal value once the whole amount has been collected and approved.', ARRAY['company', 'T3-C2']::text[]),
+  ('true_false', 'Hitting your Golden Ticket raises your salary for the day.', $j$["True","False"]$j$::jsonb, $j${"correct":1}$j$::jsonb, 'T3-C2.3: the Golden Ticket is recognition for hitting your daily sales target; it doesn''t change the salary calculation.', ARRAY['company', 'T3-C2']::text[])
+) AS v(type, prompt, options_json, answer_json, explanation, tags)
+WHERE l.code = 'T3-C2-QUIZ'
+  AND NOT EXISTS (SELECT 1 FROM training_quiz_questions q WHERE q.lesson_id = l.id);
+
+-- T3-C3-QUIZ (6 questions)
+INSERT INTO training_quiz_questions (lesson_id, type, prompt, options_json, answer_json, explanation, tags)
+SELECT l.id, v.type, v.prompt, v.options_json, v.answer_json, v.explanation, v.tags
+FROM training_lessons l, (VALUES
+  ('order', 'Put the pipeline stages in order.', $j$["Proposal sent","New interested","Closed won","Follow up"]$j$::jsonb, $j${"order":[1,3,0,2]}$j$::jsonb, 'T3-C3.1: New interested → Follow up → Proposal sent → Closed won (or Closed lost).', ARRAY['company', 'T3-C3']::text[]),
+  ('mcq', 'What is your main goal on the phone?', $j$["Close the deal","Book the meeting with the specialist","Send a proposal","Collect a deposit"]$j$::jsonb, $j${"correct":1}$j$::jsonb, 'T3-C3.1: your job on the phone is to book the meeting; the specialist runs it.', ARRAY['company', 'T3-C3']::text[]),
+  ('multi', 'What must your notes include before the specialist meets the client? (Select all that apply.)', $j$["Who is attending","Day, time and time zone","The client's pain in their own words","Your guess at their annual revenue","The service you think they need","What you noticed on their website"]$j$::jsonb, $j${"correct":[0,1,2,4,5]}$j$::jsonb, 'T3-C3.1: who, when (with time zone), pain, service, site, and what they want from the meeting.', ARRAY['company', 'T3-C3']::text[]),
+  ('mcq', 'A client agrees to a $4,000 website and pays a $1,000 deposit today. How do you log it?', $j$["Log a sale of $1,000","Log a sale with a total deal value of $4,000 and a first payment of $1,000","Wait until they pay everything, then log $4,000","Ask HR to log it"]$j$::jsonb, $j${"correct":1}$j$::jsonb, 'T3-C3.2: always log the total agreed value; record the deposit as the first payment.', ARRAY['company', 'T3-C3']::text[]),
+  ('true_false', 'Payments you record count as collected only after HR approves them.', $j$["True","False"]$j$::jsonb, $j${"correct":0}$j$::jsonb, 'T3-C3.2: each sale and each payment is pending until HR approves it.', ARRAY['company', 'T3-C3']::text[]),
+  ('mcq', 'A $4,000 deal has been fully paid and approved. What commission do you earn?', $j$["$40","$100","$200","$400"]$j$::jsonb, $j${"correct":2}$j$::jsonb, 'T3-C3.2: 5% of the total deal value: 5% × $4,000 = $200.', ARRAY['company', 'T3-C3']::text[])
+) AS v(type, prompt, options_json, answer_json, explanation, tags)
+WHERE l.code = 'T3-C3-QUIZ'
   AND NOT EXISTS (SELECT 1 FROM training_quiz_questions q WHERE q.lesson_id = l.id);
 
 -- ---------------------------------------------------------------- flashcards (insert only into empty decks)
