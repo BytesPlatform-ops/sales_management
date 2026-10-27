@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
 import { shiftCallTotalsSql } from '@/lib/call-stats';
 import bcrypt from 'bcryptjs';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { legacyAuth, withAuth } from '@/lib/auth/session';
+import { logIfCeo } from '@/lib/auth/ceo';
 
 interface Agent {
   id: number;
@@ -50,7 +47,7 @@ async function verifyHRAccess(request: NextRequest) {
   }
 
   const token = authHeader.split(' ')[1];
-  const { payload } = await jwtVerify(token, JWT_SECRET);
+  const { payload } = await legacyAuth(request);
   
   if (payload.role !== 'hr') {
     return { error: 'Access denied. HR only.', status: 403 };
@@ -60,7 +57,7 @@ async function verifyHRAccess(request: NextRequest) {
 }
 
 // GET - Get single agent by ID
-export async function GET(
+async function GET__handler(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -83,6 +80,7 @@ export async function GET(
       );
     }
 
+    await logIfCeo(request, 'payroll_person', `agent profile + salary for user #${agentId}`);
     const agent = await queryOne<Agent & Record<string, any>>(
       `SELECT id, username, full_name, extension_number, base_salary, 
               sales_target, shift_start, shift_end, employment_type, is_active,
@@ -177,7 +175,7 @@ export async function GET(
 }
 
 // PUT - Update agent
-export async function PUT(
+async function PUT__handler(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -381,7 +379,7 @@ export async function PUT(
 }
 
 // DELETE - Soft delete agent (set is_active = false)
-export async function DELETE(
+async function DELETE__handler(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -448,3 +446,7 @@ export async function DELETE(
     );
   }
 }
+
+export const GET = withAuth(GET__handler);
+export const PUT = withAuth(PUT__handler);
+export const DELETE = withAuth(DELETE__handler);

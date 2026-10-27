@@ -4,12 +4,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 interface Sale {
   id: string;
@@ -41,7 +37,7 @@ async function verifyAuth(request: NextRequest): Promise<{ userId: number; role:
 
   try {
     const token = authHeader.split(' ')[1];
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     return {
       userId: payload.userId as number,
       role: payload.role as string,
@@ -51,7 +47,7 @@ async function verifyAuth(request: NextRequest): Promise<{ userId: number; role:
   }
 }
 
-export async function POST(
+async function POST__handler(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
@@ -179,3 +175,5 @@ export async function POST(
     );
   }
 }
+
+export const POST = withAuth(POST__handler);

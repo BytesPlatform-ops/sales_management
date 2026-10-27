@@ -5,6 +5,7 @@ import { UserPlus, X, Mail, Phone, Clock, Repeat, CheckCircle2, SkipForward, Che
 import { cn } from '@/lib/utils';
 import { Btn, Pill, inputCls } from '@/components/training/ui';
 import { Avatar, Modal, Field, SectionCard, selectCls, useConfirm, useToast, StatusPill } from './ui';
+import { Attachments } from '@/components/tickets/Attachments';
 import {
   papi, usePapi, ProjectDetail, Person, Status, STATUS_LABELS, STATUS_ORDER, MEMBER_ROLE_LABELS, SERVICE_LABELS,
   PRIORITY_LABELS, RECURRENCE_LABELS, TIMEZONES, fmtDay, fmtInTz, tzAbbr, tzLabel, fmtMoney, today, sameId, PKT,
@@ -340,7 +341,7 @@ export function DatesEditor({ d, onChange }: { d: ProjectDetail; onChange: () =>
 
 // ------------------------------------------------------------------ details (agent who opened it / HR)
 
-export function DetailsEditor({ d, onChange }: { d: ProjectDetail; onChange: () => void }) {
+export function DetailsEditor({ d, onChange, meId }: { d: ProjectDetail; onChange: () => void; meId?: number | string }) {
   const p = d.project;
   const can = d.permissions.edit_details;
   const toast = useToast();
@@ -382,6 +383,13 @@ export function DetailsEditor({ d, onChange }: { d: ProjectDetail; onChange: () 
           <div><dt className="text-xs text-gray-500">Client time zone</dt><dd className="text-gray-900">{tzLabel(p.client_timezone)}</dd></div>
           <div className="sm:col-span-2"><dt className="text-xs text-gray-500">Original brief</dt><dd className="text-gray-900 whitespace-pre-wrap break-words">{p.description || <span className="text-gray-400">—</span>}</dd></div>
         </dl>
+        {d.brief_entry_id && (
+          <div className="mt-3">
+            <p className="mb-1.5 text-xs text-gray-500">Brief files</p>
+            <Attachments target={{ entity_type: 'brief_entry', entity_id: d.brief_entry_id }} meId={meId} isHr={d.permissions.role === 'hr'}
+              canUpload={!!d.permissions.brief_add} requireDescription />
+          </div>
+        )}
         {can && <div className="mt-4 flex justify-end"><Btn size="sm" variant="secondary" onClick={() => { setF(init()); setErr(null); setEditing(true); }}>Edit details</Btn></div>}
       </div>
     );
@@ -409,7 +417,14 @@ export function DetailsEditor({ d, onChange }: { d: ProjectDetail; onChange: () 
         </select>
       </Field>
       <Field label="Deal value (USD)" htmlFor="e-dv"><input id="e-dv" type="number" min="0" step="0.01" className={inputCls} value={f.deal_value} onChange={(e) => setF({ ...f, deal_value: e.target.value })} /></Field>
-      <Field label="Brief" htmlFor="e-desc" className="sm:col-span-2" hint="Editing the brief doesn’t change the first thread message."><textarea id="e-desc" rows={4} className={inputCls} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></Field>
+      <Field label="Brief" htmlFor="e-desc" className="sm:col-span-2" hint="This is version 1 of the brief timeline. For anything new from the client, add a brief update instead."><textarea id="e-desc" rows={4} className={inputCls} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></Field>
+      {d.brief_entry_id && (
+        <div className="sm:col-span-2">
+          <p className="mb-1.5 text-sm font-medium text-gray-700">Attach files to the brief</p>
+          <Attachments target={{ entity_type: 'brief_entry', entity_id: d.brief_entry_id }} meId={meId} isHr={d.permissions.role === 'hr'}
+            canUpload={!!d.permissions.brief_add} requireDescription capturePaste />
+        </div>
+      )}
       {err && <p className="sm:col-span-2 text-sm text-red-600" role="alert">{err}</p>}
       <div className="sm:col-span-2 flex justify-end gap-2">
         <Btn size="sm" variant="secondary" onClick={() => setEditing(false)}>Cancel</Btn>

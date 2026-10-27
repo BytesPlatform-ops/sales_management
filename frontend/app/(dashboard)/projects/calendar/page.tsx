@@ -9,7 +9,7 @@ import { ProjectsPage, selectCls } from '@/components/projects/ui';
 import { usePapi, ListProject, ymd, parseDay, addDays, today, fmtDay, fmtPkt } from '@/components/projects/lib';
 
 interface CalEvent {
-  type: 'start' | 'deadline' | 'delivery' | 'milestone' | 'meeting' | 'cycle';
+  type: 'start' | 'deadline' | 'delivery' | 'milestone' | 'meeting' | 'cycle' | 'ticket';
   project_id: number; ticket_no: string; project_title: string; status: string; title: string; date: string; at: string | null; extra: string | null;
 }
 
@@ -20,7 +20,11 @@ const TYPE_STYLE: Record<CalEvent['type'], { chip: string; dot: string; label: s
   milestone: { chip: 'bg-violet-50 text-violet-700 border-violet-200', dot: 'bg-violet-500', label: 'Milestone' },
   meeting: { chip: 'bg-amber-50 text-amber-800 border-amber-200', dot: 'bg-amber-500', label: 'Meeting' },
   cycle: { chip: 'bg-rose-50 text-rose-700 border-rose-200', dot: 'bg-rose-500', label: 'Cycle deadline' },
+  ticket: { chip: 'bg-white text-gray-800 border-gray-300', dot: 'bg-gray-500', label: 'Ticket due' },
 };
+
+/** Ticket events link to the ticket (extra = its key); everything else to the project. */
+const evHref = (e: CalEvent) => (e.type === 'ticket' && e.extra ? `/projects/${e.project_id}/tickets/${e.extra}` : `/projects/${e.project_id}`);
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 function evLabel(e: CalEvent) {
@@ -28,11 +32,13 @@ function evLabel(e: CalEvent) {
   if (e.type === 'milestone') return e.title;
   return e.title;
 }
-const struck = (e: CalEvent) => (e.type === 'milestone' && e.status === 'done') || (e.type === 'meeting' && e.status === 'done') || (e.type === 'cycle' && e.status !== 'open');
+const struck = (e: CalEvent) => (e.type === 'ticket' && e.status === 'done') || (e.type === 'milestone' && e.status === 'done') || (e.type === 'meeting' && e.status === 'done') || (e.type === 'cycle' && e.status !== 'open');
 
 export default function ProjectsCalendarPage() {
   const [month, setMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
   const [projectId, setProjectId] = useState('');
+  // Ticket layer: off | mine (assigned to me; agents: opened by me) | all
+  const [ticketLayer, setTicketLayer] = useState<'off' | 'mine' | 'all'>('off');
   const t = today();
 
   // Grid: Monday before the 1st through the Sunday after the last day.
@@ -47,7 +53,7 @@ export default function ProjectsCalendarPage() {
     return { start, end, days, firstYmd: ymd(first), lastYmd: ymd(last) };
   }, [month]);
 
-  const pq = projectId ? `&project_id=${projectId}` : '';
+  const pq = (projectId ? `&project_id=${projectId}` : '') + (ticketLayer !== 'off' ? `&tickets=${ticketLayer}` : '');
   const { data: events, error, isLoading } = usePapi<CalEvent[]>(`/api/projects/calendar?from=${grid.start}&to=${grid.end}${pq}`, { keepPreviousData: true });
   const { data: upcoming, isLoading: upLoading } = usePapi<CalEvent[]>(`/api/projects/calendar?from=${t}&to=${addDays(t, 14)}${pq}`);
   const { data: list } = usePapi<{ projects: ListProject[] }>('/api/projects?view=all');
@@ -78,7 +84,15 @@ export default function ProjectsCalendarPage() {
           <Btn variant="secondary" size="sm" onClick={() => shift(1)}><ChevronRight className="h-4 w-4" /><span className="sr-only">Next month</span></Btn>
         </div>
         <h2 className="text-lg font-semibold text-gray-900 min-w-[150px]" aria-live="polite">{monthLabel}</h2>
-        <div className="w-full sm:w-72 sm:ml-auto">
+        <div className="w-full sm:w-auto sm:ml-auto">
+          <label htmlFor="cal-tickets" className="sr-only">Tickets</label>
+          <select id="cal-tickets" className={selectCls} value={ticketLayer} onChange={(e) => setTicketLayer(e.target.value as 'off' | 'mine' | 'all')}>
+            <option value="off">Tickets: hidden</option>
+            <option value="mine">Tickets: mine</option>
+            <option value="all">Tickets: all</option>
+          </select>
+        </div>
+        <div className="w-full sm:w-72">
           <label htmlFor="cal-project" className="sr-only">Filter by project</label>
           <select id="cal-project" className={selectCls} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
             <option value="">All projects</option>
@@ -88,7 +102,7 @@ export default function ProjectsCalendarPage() {
       </div>
 
       <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600" aria-label="Legend">
-        {(Object.keys(TYPE_STYLE) as CalEvent['type'][]).map((k) => (
+        {(Object.keys(TYPE_STYLE) as CalEvent['type'][]).filter((k) => k !== 'ticket' || ticketLayer !== 'off').map((k) => (
           <span key={k} className="flex items-center gap-1.5"><span className={cn('h-2 w-2 rounded-full', TYPE_STYLE[k].dot)} />{TYPE_STYLE[k].label}</span>
         ))}
       </div>
@@ -115,7 +129,7 @@ export default function ProjectsCalendarPage() {
                         <ul className="space-y-0.5">
                           {evs.slice(0, 4).map((e, i) => (
                             <li key={i}>
-                              <Link href={`/projects/${e.project_id}`} title={`${e.ticket_no} · ${e.project_title} — ${TYPE_STYLE[e.type].label}: ${e.title}${e.at ? ` (${fmtPkt(e.at)})` : ''}`}
+                              <Link href={evHref(e)} title={`${e.ticket_no} · ${e.project_title} — ${TYPE_STYLE[e.type].label}: ${e.title}${e.at ? ` (${fmtPkt(e.at)})` : ''}`}
                                 className={cn('block truncate rounded border px-1 py-0.5 text-[11px] leading-tight hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500', TYPE_STYLE[e.type].chip, struck(e) && 'line-through opacity-70')}>
                                 <span className="font-semibold">{e.ticket_no.replace('PRJ-', '#')}</span> {evLabel(e)}
                               </Link>
@@ -168,7 +182,7 @@ function Agenda({ events }: { events: CalEvent[] }) {
           <ul className="space-y-1.5">
             {evs.map((e, i) => (
               <li key={i}>
-                <Link href={`/projects/${e.project_id}`} className="flex items-start gap-2 rounded-lg p-1 -m-1 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">
+                <Link href={evHref(e)} className="flex items-start gap-2 rounded-lg p-1 -m-1 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">
                   <span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', TYPE_STYLE[e.type].dot)} aria-hidden />
                   <span className="min-w-0">
                     <span className={cn('block text-sm text-gray-900', struck(e) && 'line-through text-gray-400')}>

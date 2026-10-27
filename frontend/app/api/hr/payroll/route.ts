@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query } from '@/lib/db';
 import {
   calculateRampedPerformanceScore,
@@ -10,10 +9,7 @@ import { getAllTargets } from '@/lib/targets';
 import { loadRampLookup } from '@/lib/training/ramp';
 import { getAgentStartDates } from '@/lib/agent-start';
 import { mergeDay, shiftCallTotalsSql } from '@/lib/call-stats';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 interface JwtPayload {
   userId: number;
@@ -84,7 +80,7 @@ interface AgentPayroll {
   quotaMultiplier: number;
 }
 
-export async function GET(request: NextRequest) {
+async function GET__handler(request: NextRequest) {
   try {
     // 1. Verify JWT token and HR role
     const authHeader = request.headers.get('authorization');
@@ -97,7 +93,7 @@ export async function GET(request: NextRequest) {
     }
 
     const token = authHeader.split(' ')[1];
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     const jwtPayload = payload as unknown as JwtPayload;
 
     if (jwtPayload.role !== 'hr') {
@@ -414,3 +410,5 @@ function getWorkingDaysInMonth(year: number, month: number): number {
   
   return workingDays;
 }
+
+export const GET = withAuth(GET__handler);

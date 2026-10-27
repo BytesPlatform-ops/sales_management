@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server';
 import { query, queryOne } from '@/lib/db';
 import { handler, ok, readJson, HttpError } from '@/lib/training/http';
 import { getViewer, loadProject, requireSupervisor, systemMessage } from '@/lib/projects/core';
+import { notify } from '@/lib/notifications';
+import { syncRepoAccessSoon } from '@/lib/github/access';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +24,12 @@ export const POST = handler(async (request: NextRequest, { params }: { params: {
     [p.id, Number(user.id), role, v.userId]
   );
   await systemMessage(p.id, `${v.name} assigned ${user.full_name}${role === 'lead_developer' ? ' as lead developer' : role === 'watcher' ? ' as a watcher' : ''}.`, v.userId);
+  await notify({
+    users: [Number(user.id)], actorId: v.userId, type: 'project_assigned',
+    body: `${v.name} added you to ${p.ticket_no}: ${p.title}${role === 'lead_developer' ? ' as lead developer' : ''}`,
+    link: `/projects/${p.id}`, projectId: p.id, entity: { type: 'project', id: p.id },
+  });
+  syncRepoAccessSoon(p.id); // repo access follows membership
   return ok({ added: Number(user.id) });
 });
 
@@ -37,5 +45,6 @@ export const DELETE = handler(async (request: NextRequest, { params }: { params:
   );
   if (!rows.length) throw new HttpError(404, 'Not on this project');
   await systemMessage(p.id, `${v.name} removed ${rows[0].full_name} from the project.`, v.userId);
+  syncRepoAccessSoon(p.id);
   return ok({ removed: userId });
 });

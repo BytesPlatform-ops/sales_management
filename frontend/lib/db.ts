@@ -5,8 +5,12 @@ import { Pool, types } from 'pg';
 // time by 5h. Always read them as UTC.
 types.setTypeParser(1114, (value: string) => new Date(value.replace(' ', 'T') + 'Z'));
 
-// Database configuration for Next.js API routes
-const pool = new Pool({
+// Database configuration for Next.js API routes.
+// One pool per process: kept on globalThis so dev hot-reloads and separately
+// bundled code (instrumentation, route bundles) don't each open their own pool
+// and run the database out of connections ("too many clients already").
+const globalForPool = globalThis as unknown as { __pgPool?: Pool };
+const pool = globalForPool.__pgPool ?? new Pool({
   host: process.env.DB_HOST || 'aws-1-ap-southeast-2.pooler.supabase.com',
   port: parseInt(process.env.DB_PORT || '6543', 10),
   database: process.env.DB_NAME || 'postgres',
@@ -19,6 +23,7 @@ const pool = new Pool({
   max: process.env.DB_POOL_MAX ? parseInt(process.env.DB_POOL_MAX, 10) : 10,
   idleTimeoutMillis: 30000,
 });
+globalForPool.__pgPool = pool;
 
 export async function query<T = any>(text: string, params?: any[]): Promise<T[]> {
   const result = await pool.query(text, params);

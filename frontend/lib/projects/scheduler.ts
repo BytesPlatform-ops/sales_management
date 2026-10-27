@@ -1,15 +1,12 @@
 /**
  * Projects job for the in-app scheduler: open the next delivery cycle for
- * recurring projects once the current one has ended. Hourly; no-op until the
- * projects tables exist.
+ * recurring projects once the current one has ended. instrumentation.ts runs it
+ * at most hourly across all instances (job_locks); no-op until the projects
+ * tables exist.
  */
 import { rollRecurringCycles } from './core';
 
-let lastRun = 0;
-
 export async function runProjectsTick() {
-  if (Date.now() - lastRun < 60 * 60 * 1000) return;
-  lastRun = Date.now();
   try {
     const opened = await rollRecurringCycles();
     if (opened) console.log(`📁 Projects: opened ${opened} recurring cycle(s)`);

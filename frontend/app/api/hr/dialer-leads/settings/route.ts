@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
 import crypto from 'crypto';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 interface JwtPayload {
   userId: number;
@@ -19,7 +15,7 @@ export const dynamic = 'force-dynamic';
  * GET /api/hr/dialer-leads/settings
  * Get auto-distribution settings
  */
-export async function GET(request: NextRequest) {
+async function GET__handler(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -27,7 +23,7 @@ export async function GET(request: NextRequest) {
     }
 
     const token = authHeader.split(' ')[1];
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     const jwt = payload as unknown as JwtPayload;
 
     if (jwt.role !== 'hr') {
@@ -60,7 +56,7 @@ export async function GET(request: NextRequest) {
  * PUT /api/hr/dialer-leads/settings
  * Update auto-distribution settings
  */
-export async function PUT(request: NextRequest) {
+async function PUT__handler(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -68,7 +64,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const token = authHeader.split(' ')[1];
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     const jwt = payload as unknown as JwtPayload;
 
     if (jwt.role !== 'hr') {
@@ -135,3 +131,6 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ status: 'error', message: 'Failed to update settings' }, { status: 500 });
   }
 }
+
+export const GET = withAuth(GET__handler);
+export const PUT = withAuth(PUT__handler);

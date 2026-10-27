@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { queryOne } from '@/lib/db';
 import { scrapeBusinessForEnrichment, ScrapedBusinessData } from '@/lib/scrapers/scraping-service';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
@@ -20,7 +16,7 @@ interface JwtPayload {
  * Scrapes business website → feeds scraped content to GPT → generates talking points
  * focused on: (1) How to advertise the business, (2) How to reduce operational cost
  */
-export async function POST(request: NextRequest) {
+async function POST__handler(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -28,7 +24,7 @@ export async function POST(request: NextRequest) {
     }
 
     const token = authHeader.split(' ')[1];
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     const jwt = payload as unknown as JwtPayload;
 
     if (!OPENAI_API_KEY || OPENAI_API_KEY === 'your-openai-api-key-here') {
@@ -341,3 +337,5 @@ ${hasScrapedContent ? '- USE the scraped website content to make points SPECIFIC
     );
   }
 }
+
+export const POST = withAuth(POST__handler);

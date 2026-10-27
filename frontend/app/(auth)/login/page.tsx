@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { useAuth } from '@/hooks/use-auth';
+import { useAuth, TotpChallenge } from '@/hooks/use-auth';
+import { TotpStep } from '@/components/auth/TotpStep';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Clock, AlertCircle, CheckCircle, Loader2, Eye, EyeOff } from 'lucide-react';
 import { SpotlightCard } from '@/components/ui/SpotlightCard';
@@ -216,7 +217,8 @@ function YetiAvatar({
 }
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, applyToken } = useAuth();
+  const [totp, setTotp] = useState<TotpChallenge | null>(null);
   const router = useRouter();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -238,7 +240,7 @@ export default function LoginPage() {
   }, []);
   
   // Use ref for role to avoid async state issues
-  const userRoleRef = useRef<'hr' | 'agent' | 'developer' | null>(null);
+  const userRoleRef = useRef<'hr' | 'agent' | 'developer' | 'ceo' | null>(null);
 
   // Handler for GamifiedSubmitButton - returns true for success, false for error
   const handleGamifiedSubmit = async (): Promise<boolean> => {
@@ -247,6 +249,11 @@ export default function LoginPage() {
 
     try {
       const result = await login(username, password, remember);
+      // CEO accounts: password OK → authenticator code step (no token yet).
+      if (result && 'totp_required' in result) {
+        setTotp(result);
+        return false;
+      }
       try {
         if (remember) localStorage.setItem('remembered_username', username);
         else localStorage.removeItem('remembered_username');
@@ -269,10 +276,12 @@ export default function LoginPage() {
   // Handle page transition after success animation
   const handleTransitionComplete = () => {
     // Redirect based on user role (read from ref for immediate value)
-    if (userRoleRef.current === 'hr') {
+    if (userRoleRef.current === 'ceo') {
+      router.push('/ceo');
+    } else if (userRoleRef.current === 'hr') {
       router.push('/hr');
     } else if (userRoleRef.current === 'developer') {
-      router.push('/projects');
+      router.push('/overview'); // developer home: my tasks, my projects, today's meetings
     } else {
       router.push('/agent');
     }
@@ -380,7 +389,14 @@ export default function LoginPage() {
             )}
           </AnimatePresence>
 
-          {/* Form */}
+          {totp ? (
+            <TotpStep
+              challenge={totp}
+              onCancel={() => { setTotp(null); setPassword(''); }}
+              onDone={async (token) => { await applyToken(token); router.push('/ceo'); }}
+            />
+          ) : (
+          /* Form */
           <form onSubmit={handleSubmit} className="space-y-5">
             <AnimatePresence>
               {error && (
@@ -467,6 +483,7 @@ export default function LoginPage() {
               Sign In
             </GamifiedSubmitButton>
           </form>
+          )}
 
           {/* Timezone */}
           <motion.div 

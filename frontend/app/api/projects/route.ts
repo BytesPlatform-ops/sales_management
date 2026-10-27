@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server';
 import { query, queryOne } from '@/lib/db';
 import { handler, ok, readJson, HttpError } from '@/lib/training/http';
 import { getViewer, visibilityClause, systemMessage, openNextCycle, OPEN_STATUSES, normalizeProject } from '@/lib/projects/core';
+import { applyProjectTemplate } from '@/lib/tickets/project-templates';
+import { ensureOriginal } from '@/lib/brief/core';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,7 +37,7 @@ export const GET = handler(async (request: NextRequest) => {
     `SELECT p.*, cu.full_name AS created_by_name, su.full_name AS supervisor_name,
             COALESCE((SELECT json_agg(json_build_object('id', u.id, 'name', u.full_name, 'member_role', m.member_role) ORDER BY u.full_name)
                       FROM project_members m JOIN users u ON u.id = m.user_id WHERE m.project_id = p.id), '[]') AS members,
-            (SELECT COUNT(*) FROM project_messages msg WHERE msg.project_id = p.id
+            (SELECT COUNT(*) FROM project_messages msg WHERE msg.project_id = p.id AND NOT msg.is_draft AND msg.deleted_at IS NULL
                AND msg.id > COALESCE((SELECT last_read_message_id FROM project_reads r WHERE r.project_id = p.id AND r.user_id = $1), 0)
                AND COALESCE(msg.user_id, 0) <> $1)::int AS unread,
             (SELECT json_build_object('id', mt.id, 'title', mt.title, 'starts_at', mt.starts_at, 'kind', mt.kind)
@@ -118,6 +120,10 @@ export const POST = handler(async (request: NextRequest) => {
   if (String(b.description || '').trim()) {
     await query(`INSERT INTO project_messages (project_id, user_id, body) VALUES ($1, $2, $3)`, [p.id, v.userId, String(b.description).trim()]);
   }
+  // The brief text becomes version 1 of the brief timeline.
+  await ensureOriginal({ id: p.id, description: String(b.description || '').trim(), created_by: v.userId, created_at: new Date().toISOString() });
   if (recurring) await openNextCycle(p.id);
+  // Optional starting structure (epics, tickets, milestones) from a project template.
+  if (b.template_id) await applyProjectTemplate(p.id, Number(b.template_id), v.userId);
   return ok(normalizeProject((await queryOne<any>(`SELECT * FROM projects WHERE id = $1`, [p.id]))!));
 });

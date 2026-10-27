@@ -1,16 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query } from '@/lib/db';
 import { getRecordingSettings } from '@/lib/recording-settings';
 import { getShiftDate } from '@/lib/shift-date';
 import { loadShiftCalls } from '@/lib/agent-calls';
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
 
 /**
  * GET /api/hr/recordings/by-agent?date=YYYY-MM-DD[&min_seconds=60]
@@ -20,13 +16,13 @@ const JWT_SECRET = new TextEncoder().encode(
  * inactive agents only when they made calls that shift. Transcripts are left
  * out to keep the team view light (the per-agent page shows them).
  */
-export async function GET(request: NextRequest) {
+async function GET__handler(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
   if (!authHeader?.startsWith('Bearer ')) {
     return NextResponse.json({ status: 'error', message: 'No token provided' }, { status: 401 });
   }
   try {
-    const { payload } = await jwtVerify(authHeader.split(' ')[1], JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     if ((payload as any).role !== 'hr') {
       return NextResponse.json({ status: 'error', message: 'HR access required' }, { status: 403 });
     }
@@ -83,3 +79,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ status: 'error', message: 'Failed to load recordings' }, { status: 500 });
   }
 }
+
+export const GET = withAuth(GET__handler);

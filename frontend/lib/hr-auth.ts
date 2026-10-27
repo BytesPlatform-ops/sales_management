@@ -5,11 +5,7 @@
  * never trusted for authorization.
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { AuthError, verifyRequest } from '@/lib/auth/session';
 
 export interface HrPayload {
   userId: number;
@@ -25,22 +21,18 @@ export class HttpError extends Error {
 
 /** Returns the verified HR payload or throws HttpError(401/403). */
 export async function requireHR(request: NextRequest): Promise<HrPayload> {
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    throw new HttpError(401, 'No token provided');
-  }
-  const token = authHeader.split(' ')[1];
-  let payload: HrPayload;
+  let a;
   try {
-    const verified = await jwtVerify(token, JWT_SECRET);
-    payload = verified.payload as unknown as HrPayload;
-  } catch {
-    throw new HttpError(401, 'Invalid or expired token');
+    a = await verifyRequest(request);
+  } catch (e) {
+    if (e instanceof AuthError) throw new HttpError(e.status, e.message);
+    throw e;
   }
-  if (payload.role !== 'hr') {
+  // A CEO passes as HR (writes only get here with Admin mode on).
+  if (a.effectiveRole !== 'hr') {
     throw new HttpError(403, 'HR access required');
   }
-  return payload;
+  return { userId: a.userId, username: a.username, role: 'hr' };
 }
 
 export function errorResponse(err: unknown): NextResponse {

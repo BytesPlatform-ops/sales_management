@@ -12,7 +12,7 @@ export const GET = handler(async (request: NextRequest) => {
     const row = await queryOne<any>(
       `SELECT
          (SELECT COUNT(*) FROM project_messages msg JOIN projects p ON p.id = msg.project_id
-          WHERE ${visibilityClause(v)} AND COALESCE(msg.user_id, 0) <> $1
+          WHERE ${visibilityClause(v)} AND COALESCE(msg.user_id, 0) <> $1 AND NOT msg.is_draft AND msg.deleted_at IS NULL
             AND msg.id > COALESCE((SELECT last_read_message_id FROM project_reads r WHERE r.project_id = p.id AND r.user_id = $1), 0))::int AS unread,
          (SELECT COUNT(*) FROM projects p WHERE ${visibilityClause(v)} AND p.deadline < CURRENT_DATE
             AND p.status NOT IN ('delivered', 'closed', 'cancelled'))::int AS overdue,

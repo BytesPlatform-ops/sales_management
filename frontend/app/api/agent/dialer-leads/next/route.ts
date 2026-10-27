@@ -1,14 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
 import { getStateRoutingOrder } from '@/lib/timezone-router';
 import { dialerBlockReason } from '@/lib/training/gate';
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
 
 interface JwtPayload {
   userId: number;
@@ -20,7 +16,7 @@ interface JwtPayload {
  * GET /api/agent/dialer-leads/next
  * Get the next pending dialer lead for the logged-in agent (today's assigned leads).
  */
-export async function GET(request: NextRequest) {
+async function GET__handler(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -28,7 +24,7 @@ export async function GET(request: NextRequest) {
     }
 
     const token = authHeader.split(' ')[1];
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     const jwt = payload as unknown as JwtPayload;
 
     // Training gate: reps without LIVE_CALL_CERT don't get live leads (setting-controlled).
@@ -222,3 +218,5 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export const GET = withAuth(GET__handler);

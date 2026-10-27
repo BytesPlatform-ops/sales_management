@@ -2,6 +2,9 @@ import { NextRequest } from 'next/server';
 import { query, queryOne } from '@/lib/db';
 import { handler, ok, readJson, HttpError } from '@/lib/training/http';
 import { getViewer, loadProject, systemMessage, openNextCycle, fmtDay, normalizeProject } from '@/lib/projects/core';
+import { envAccessMap, isVaultEnv } from '@/lib/vault/access';
+import { grantVaultEnvs } from '@/lib/access/grants';
+import { ensureOriginal, syncOriginalBrief } from '@/lib/brief/core';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,6 +26,13 @@ export const GET = handler(async (request: NextRequest, { params }: { params: { 
       [p.created_by, p.supervisor_id]),
   ]);
   const hr = v.role === 'hr';
+  // Help-request access is read + comment only: no project edits.
+  const viaGrant = p.access?.via === 'grant';
+  const briefEntryId = await ensureOriginal(p as any);
+  const myMembership = (members as any[]).find((m) => Number(m.id) === v.userId);
+  const envAccess = envAccessMap(v.role, myMembership?.member_role);
+  // Temporary helpers (help-request grant) see the environments their grant opens.
+  if (p.access?.via === 'grant') for (const e of grantVaultEnvs(p.access.grant as any)) if (isVaultEnv(e)) envAccess[e] = true;
   return ok({
     project: {
       ...p,
@@ -38,12 +48,18 @@ export const GET = handler(async (request: NextRequest, { params }: { params: { 
       edit_details: hr || (v.role === 'agent' && p.created_by === v.userId),
       edit_dates: hr,
       manage_members: hr,
-      manage_milestones: hr || v.role === 'developer',
-      manage_meetings: true,
-      set_status: hr || v.role === 'developer',
+      manage_milestones: hr || (v.role === 'developer' && !viaGrant),
+      manage_meetings: !viaGrant,
+      set_status: hr || (v.role === 'developer' && !viaGrant),
       deliver_cycle: hr,
       close: hr,
+      env: envAccess,
+      // HR and the client's agent add brief updates and brief files.
+      brief_add: hr || (v.role === 'agent' && p.created_by === v.userId),
+      // Temporary/shared access: what it allows and until when.
+      grant: viaGrant ? { level: p.access.grant?.level ?? 'view', expires_at: p.access.grant?.expires_at ?? null, source: p.access.grant?.source ?? null } : null,
     },
+    brief_entry_id: briefEntryId,
   });
 });
 
@@ -88,6 +104,11 @@ export const PATCH = handler(async (request: NextRequest, { params }: { params: 
     changes.push(`supervisor → ${s?.full_name || 'none'}`);
   }
   if (changes.length) await systemMessage(p.id, `${v.name} updated ${changes.join(', ')}.`, v.userId);
+  // The description is the original brief (version 1 of the brief timeline); keep them in step.
+  if ('description' in b) {
+    await ensureOriginal(p as any);
+    await syncOriginalBrief(p.id, String(b.description ?? ''), v.userId);
+  }
   if (updated.project_type === 'recurring') {
     const open = await queryOne(`SELECT 1 FROM project_cycles WHERE project_id = $1`, [p.id]);
     if (!open) await openNextCycle(p.id);

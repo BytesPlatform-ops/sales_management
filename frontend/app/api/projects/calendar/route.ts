@@ -6,7 +6,7 @@ import { getViewer, visibilityClause } from '@/lib/projects/core';
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/projects/calendar?from=YYYY-MM-DD&to=YYYY-MM-DD[&project_id=]
+ * GET /api/projects/calendar?from=YYYY-MM-DD&to=YYYY-MM-DD[&project_id=][&tickets=all|mine]
  * Calendar events for visible projects: work start, deadlines, expected
  * delivery, milestones, meetings and recurring cycle deadlines.
  */
@@ -20,6 +20,16 @@ export const GET = handler(async (request: NextRequest) => {
   const vis = visibilityClause(v);
   const scope = `${vis} AND p.status <> 'cancelled' ${projectId ? 'AND p.id = $4' : ''}`;
   const params: any[] = [v.userId, from, to, ...(projectId ? [projectId] : [])];
+  // Optional ticket layer: ?tickets=all (every open ticket due in range) | mine (assigned to me; agents: opened by me).
+  const tickets = sp.get('tickets');
+  const mine = v.role === 'agent' ? 't.created_by = $1' : 'EXISTS (SELECT 1 FROM ticket_assignees a WHERE a.ticket_id = t.id AND a.user_id = $1)';
+  const ticketLayer = tickets === 'all' || tickets === 'mine'
+    ? `UNION ALL
+       SELECT 'ticket', p.id, p.ticket_no, p.title, t.status, t.key || ' ' || t.title, t.due_date::text, NULL, t.key
+       FROM tickets t JOIN projects p ON p.id = t.project_id
+       WHERE ${scope} AND t.deleted_at IS NULL AND t.status NOT IN ('closed','declined') AND t.due_date BETWEEN $2 AND $3
+         ${tickets === 'mine' ? `AND ${mine}` : ''}`
+    : '';
 
   const events = await query<any>(
     `SELECT * FROM (
@@ -41,6 +51,7 @@ export const GET = handler(async (request: NextRequest) => {
        UNION ALL
        SELECT 'cycle', p.id, p.ticket_no, p.title, c.status, 'Cycle ' || c.cycle_no || ' deadline', c.deadline::text, NULL, c.period_start::text
        FROM project_cycles c JOIN projects p ON p.id = c.project_id WHERE ${scope} AND c.deadline BETWEEN $2 AND $3
+       ${ticketLayer}
      ) e ORDER BY date, at NULLS FIRST, type`,
     params
   );

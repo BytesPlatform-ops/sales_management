@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 interface JwtPayload {
   userId: number;
@@ -24,7 +20,7 @@ const VALID_DIMENSIONS = [
  * Upserts one flag per (evaluation, HR user). This is calibration feedback used
  * to tune the rubric before the AI is allowed to coach agents.
  */
-export async function POST(request: NextRequest) {
+async function POST__handler(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
     if (!authHeader?.startsWith('Bearer ')) {
@@ -33,7 +29,7 @@ export async function POST(request: NextRequest) {
 
     let jwt: JwtPayload;
     try {
-      const { payload } = await jwtVerify(authHeader.split(' ')[1], JWT_SECRET);
+      const { payload } = await legacyAuth(request);
       jwt = payload as unknown as JwtPayload;
     } catch {
       return NextResponse.json({ status: 'error', message: 'Invalid token' }, { status: 401 });
@@ -89,7 +85,7 @@ export async function POST(request: NextRequest) {
 /**
  * DELETE /api/hr/qa-daily/flag?evaluationId=123  — remove this HR user's flag.
  */
-export async function DELETE(request: NextRequest) {
+async function DELETE__handler(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
     if (!authHeader?.startsWith('Bearer ')) {
@@ -97,7 +93,7 @@ export async function DELETE(request: NextRequest) {
     }
     let jwt: JwtPayload;
     try {
-      const { payload } = await jwtVerify(authHeader.split(' ')[1], JWT_SECRET);
+      const { payload } = await legacyAuth(request);
       jwt = payload as unknown as JwtPayload;
     } catch {
       return NextResponse.json({ status: 'error', message: 'Invalid token' }, { status: 401 });
@@ -121,3 +117,6 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ status: 'error', message: 'Internal error' }, { status: 500 });
   }
 }
+
+export const POST = withAuth(POST__handler);
+export const DELETE = withAuth(DELETE__handler);

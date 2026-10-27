@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
-import { jwtVerify } from 'jose';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 interface JwtPayload {
   userId: number;
@@ -20,7 +16,7 @@ interface AddMeetingRequest {
 }
 
 // POST - Add meeting time to agent's daily stats
-export async function POST(request: NextRequest) {
+async function POST__handler(request: NextRequest) {
   try {
     // Verify JWT token and check if user is HR
     const authHeader = request.headers.get('authorization');
@@ -32,7 +28,7 @@ export async function POST(request: NextRequest) {
     }
 
     const token = authHeader.substring(7);
-    const verified = (await jwtVerify(token, JWT_SECRET)) as any;
+    const verified = (await legacyAuth(request)) as any;
     const payload = verified.payload as JwtPayload;
 
     // Only HR can add meeting time
@@ -161,3 +157,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const POST = withAuth(POST__handler);

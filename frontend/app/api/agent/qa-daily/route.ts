@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query } from '@/lib/db';
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
 
 interface JwtPayload {
   userId: number;
@@ -21,7 +17,7 @@ interface JwtPayload {
  * from the verified JWT, never from a query param, so an agent can only ever see their
  * own calls. Read-only: no flag/dispute, and the raw transcript is intentionally omitted.
  */
-export async function GET(request: NextRequest) {
+async function GET__handler(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -29,7 +25,7 @@ export async function GET(request: NextRequest) {
     }
     let payload: JwtPayload;
     try {
-      const verified = await jwtVerify(authHeader.split(' ')[1], JWT_SECRET);
+      const verified = await legacyAuth(request);
       payload = verified.payload as unknown as JwtPayload;
     } catch {
       return NextResponse.json({ status: 'error', message: 'Invalid token' }, { status: 401 });
@@ -80,3 +76,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ status: 'error', message: error.message || 'Internal error' }, { status: 500 });
   }
 }
+
+export const GET = withAuth(GET__handler);

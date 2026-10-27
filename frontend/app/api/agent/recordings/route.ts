@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
 import { findRecordingForRequest, getClientSecret } from '@/lib/recording-lookup';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 interface JwtPayload {
   userId: number;
@@ -18,13 +14,13 @@ export const dynamic = 'force-dynamic';
 /**
  * GET /api/agent/recordings — List agent's recording requests
  */
-export async function GET(request: NextRequest) {
+async function GET__handler(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json({ status: 'error', message: 'No token' }, { status: 401 });
     }
-    const { payload } = await jwtVerify(authHeader.split(' ')[1], JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     const jwt = payload as unknown as JwtPayload;
 
     const requests = await query<any>(
@@ -48,13 +44,13 @@ export async function GET(request: NextRequest) {
 /**
  * POST /api/agent/recordings — Agent requests a recording by phone number
  */
-export async function POST(request: NextRequest) {
+async function POST__handler(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json({ status: 'error', message: 'No token' }, { status: 401 });
     }
-    const { payload } = await jwtVerify(authHeader.split(' ')[1], JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     const jwt = payload as unknown as JwtPayload;
 
     const body = await request.json();
@@ -164,3 +160,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: 'error', message: 'Failed to submit request' }, { status: 500 });
   }
 }
+
+export const GET = withAuth(GET__handler);
+export const POST = withAuth(POST__handler);

@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query } from '@/lib/db';
 import { listRecordings, ThreeCXRecording } from '@/lib/3cx-client';
 import { getRecordingSettings, shiftWindowPKT } from '@/lib/recording-settings';
 import { recordingPlayUrl } from '@/lib/recording-links';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 interface JwtPayload {
   userId: number;
@@ -30,7 +26,7 @@ async function verifyHRAccess(request: NextRequest): Promise<{ success: true; pa
 
   try {
     const token = authHeader.split(' ')[1];
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     const jwtPayload = payload as unknown as JwtPayload;
 
     if (jwtPayload.role !== 'hr') {
@@ -72,7 +68,7 @@ function parseDurationToSeconds(duration: string | null): number {
  * FETCH ONLY - Returns existing audit data if it exists, otherwise returns auditExists: false
  * Does NOT auto-generate. Use POST /api/hr/audit/generate to create new audits.
  */
-export async function GET(request: NextRequest) {
+async function GET__handler(request: NextRequest) {
   const authResult = await verifyHRAccess(request);
   if (!authResult.success) {
     return authResult.error;
@@ -340,3 +336,5 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export const GET = withAuth(GET__handler);

@@ -52,6 +52,8 @@ function NewProjectForm() {
     user && user.role !== 'developer' ? '/api/projects/sources' : null
   );
   const [form, setForm] = useState(EMPTY);
+  const [templateId, setTemplateId] = useState('');
+  const { data: templates } = usePapi<{ id: number; name: string; service_type: string | null; description: string }[]>('/api/hr/project-templates');
   const [source, setSource] = useState<{ kind: 'lead' | 'sale'; id: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -134,6 +136,7 @@ function NewProjectForm() {
         sale_id: source?.kind === 'sale' ? source.id : undefined,
         recurrence: form.project_type === 'recurring' ? form.recurrence : undefined,
         recurrence_end: form.project_type === 'recurring' ? form.recurrence_end || null : undefined,
+        template_id: templateId ? Number(templateId) : undefined,
       };
       const p = await papi<{ id: number; ticket_no: string }>('/api/projects', { body });
       toast(`Ticket ${p.ticket_no} opened`);
@@ -227,6 +230,18 @@ function NewProjectForm() {
             <Field label="Service" htmlFor="f-service_type">
               <select id="f-service_type" className={selectCls} value={form.service_type} onChange={(e) => set('service_type', e.target.value)}>
                 {Object.entries(SERVICE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </Field>
+            <Field label="Start from a template (optional)" htmlFor="f-template" className="sm:col-span-2"
+              hint={templateId ? templates?.find((t) => String(t.id) === templateId)?.description || 'Adds the template’s epics, tickets and milestones.' : 'Adds ready-made epics, tickets and milestones for this kind of project.'}>
+              <select id="f-template" className={selectCls} value={templateId}
+                onChange={(e) => {
+                  setTemplateId(e.target.value);
+                  const t = templates?.find((x) => String(x.id) === e.target.value);
+                  if (t?.service_type && SERVICE_LABELS[t.service_type]) set('service_type', t.service_type);
+                }}>
+                <option value="">No template</option>
+                {(templates || []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </Field>
             <Field label="Priority" htmlFor="f-priority">

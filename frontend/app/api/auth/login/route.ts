@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { SignJWT } from 'jose';
 import { query, queryOne } from '@/lib/db';
 import {
   determineAttendanceStatus,
@@ -8,19 +7,17 @@ import {
   getAttendanceDate,
   isWeekendShift,
 } from '@/lib/attendance-utils';
+import { issueSession } from '@/lib/auth/session';
+import { startTotpChallenge, ceoTwoFactorRequired } from '@/lib/auth/twofactor';
 
 // Use jose library for Edge-compatible JWT (install: npm install jose)
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
-
 interface User {
   id: number;
   username: string;
   password: string;
   full_name: string;
   extension_number: string;
-  role: 'hr' | 'agent';
+  role: 'hr' | 'agent' | 'developer' | 'ceo';
   base_salary: number;
   shift_start: string;
   shift_end: string;
@@ -83,16 +80,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 3. Generate JWT token
-    const token = await new SignJWT({
-      userId: user.id,
-      username: user.username,
-      role: user.role,
-    })
-      .setProtectedHeader({ alg: 'HS256' })
-      .setIssuedAt()
-      .setExpirationTime(remember ? '30d' : '12h')
-      .sign(JWT_SECRET);
+    // 3. CEO accounts need a second step (TOTP) before a token is issued, when CEO_REQUIRE_2FA=true.
+    if (user.role === 'ceo' && ceoTwoFactorRequired()) {
+      const challenge = await startTotpChallenge(Number(user.id), remember);
+      return NextResponse.json({ status: 'success', data: { totp_required: true, ...challenge } });
+    }
+
+    // 4. Start a session and sign its token
+    const { token } = await issueSession(user, request, { remember });
 
     // 4. Handle attendance for agents (not HR)
     let attendanceInfo = null;

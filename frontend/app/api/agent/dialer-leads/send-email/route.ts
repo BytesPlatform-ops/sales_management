@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
 import { scrapeBusinessForEnrichment, ScrapedBusinessData } from '@/lib/scrapers/scraping-service';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
@@ -21,7 +17,7 @@ interface JwtPayload {
  * POST /api/agent/dialer-leads/send-email
  * Agent clicks "Send Email" during a call → generates personalized email via GPT → sends via SendGrid
  */
-export async function POST(request: NextRequest) {
+async function POST__handler(request: NextRequest) {
   try {
     // 1. Auth check
     const authHeader = request.headers.get('authorization');
@@ -30,7 +26,7 @@ export async function POST(request: NextRequest) {
     }
 
     const token = authHeader.split(' ')[1];
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     const jwt = payload as unknown as JwtPayload;
 
     if (!OPENAI_API_KEY) {
@@ -614,3 +610,5 @@ function buildEmailHtml(bodyText: string, senderName: string): string {
 </body>
 </html>`;
 }
+
+export const POST = withAuth(POST__handler);

@@ -11,10 +11,12 @@ export const GET = handler(async (request: NextRequest) => {
   await requireHr(request);
   return ok(await query(
     `SELECT u.id, u.username, u.full_name, u.email_address AS email, COALESCE(u.is_active, true) AS is_active, u.created_at,
+            COALESCE(dp.is_guest, false) AS is_guest, dp.guest_expires_at, COALESCE(dp.skills, '{}') AS skills,
             (SELECT COUNT(*) FROM project_members m JOIN projects p ON p.id = m.project_id
              WHERE m.user_id = u.id AND p.status NOT IN ('delivered', 'closed', 'cancelled'))::int AS open_projects,
             (SELECT COUNT(*) FROM project_members m WHERE m.user_id = u.id)::int AS total_projects
-     FROM users u WHERE u.role = 'developer' ORDER BY COALESCE(u.is_active, true) DESC, u.full_name`
+     FROM users u LEFT JOIN developer_profiles dp ON dp.user_id = u.id
+     WHERE u.role = 'developer' ORDER BY COALESCE(u.is_active, true) DESC, u.full_name`
   ));
 });
 

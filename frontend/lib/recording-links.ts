@@ -4,10 +4,8 @@
  * unlocks one recording and expires.
  */
 import { SignJWT, jwtVerify } from 'jose';
+import { jwtSecret } from '@/lib/jwt-secret';
 
-const SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
 const PURPOSE = 'recording-play';
 
 // HR keeps audit pages open for a whole review session, so links last a shift;
@@ -17,13 +15,13 @@ export async function recordingPlayUrl(recId: number | string, ttl = '12h'): Pro
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime(ttl)
-    .sign(SECRET);
+    .sign(jwtSecret());
   return `/api/recordings/play?t=${encodeURIComponent(t)}`;
 }
 
 export async function verifyRecordingPlayToken(t: string): Promise<number | null> {
   try {
-    const { payload } = await jwtVerify(t, SECRET);
+    const { payload } = await jwtVerify(t, jwtSecret());
     if (payload.purpose !== PURPOSE || typeof payload.recId !== 'number') return null;
     return payload.recId;
   } catch {

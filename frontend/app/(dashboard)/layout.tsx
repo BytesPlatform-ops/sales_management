@@ -4,6 +4,8 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { AuthProvider, useAuth } from '@/hooks/use-auth';
 import { Sidebar } from '@/components/layout/sidebar';
+import { CommandPalette } from '@/components/command/CommandPalette';
+import { CeoBar, StaffNotices, ViewAsBanner } from '@/components/ceo/CeoBar';
 
 function DashboardContent({ children }: { children: React.ReactNode }) {
   const { user, loading, isAuthenticated } = useAuth();
@@ -29,8 +31,12 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <ViewAsBanner />
       <Sidebar />
-      <main className="lg:ml-64 p-6">{children}</main>
+      <CommandPalette />
+      <CeoBar />
+      <StaffNotices />
+      <main className={user?.view_as ? 'lg:ml-64 p-6 pt-12' : user?.isCeo ? 'lg:ml-64 p-6 pt-14' : 'lg:ml-64 p-6'}>{children}</main>
     </div>
   );
 }

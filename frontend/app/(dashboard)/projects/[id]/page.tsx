@@ -1,28 +1,43 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
 import { FolderX } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { cn } from '@/lib/utils';
 import { Spinner, ErrorNote, Empty } from '@/components/training/ui';
 import { ProjectsPage, StatusPill, PriorityPill, TypePill, SectionCard } from '@/components/projects/ui';
-import { usePapi, ProjectDetail, SERVICE_LABELS, fmtMoney, fmtDay } from '@/components/projects/lib';
+import { usePapi, sameId, ProjectDetail, SERVICE_LABELS, fmtMoney, fmtDay } from '@/components/projects/lib';
 import { Thread } from '@/components/projects/Thread';
 import { Gantt, Milestones, DeadlineNote } from '@/components/projects/Timeline';
 import { Meetings } from '@/components/projects/Meetings';
 import { ClientCard, StatusControl, People, DatesEditor, DetailsEditor, Cycles } from '@/components/projects/Panels';
+import { BriefTab } from '@/components/brief/BriefTab';
+import { EnvVault } from '@/components/projects/EnvVault';
+import { TriageRotationCard } from '@/components/collab/TriageRotationCard';
+import { ReminderSettingsCard } from '@/components/reminders/Reminders';
+import { TicketsTab } from '@/components/tickets/TicketsTab';
+import { ProjectFiles } from '@/components/tickets/ProjectFiles';
+import { ActivityTab, HealthPill } from '@/components/projects/ActivityTab';
 
-type Tab = 'thread' | 'timeline' | 'details' | 'meetings' | 'people';
-const LEFT_TABS: Tab[] = ['thread', 'timeline', 'details'];
-const TAB_LABELS: Record<Tab, string> = { thread: 'Thread', timeline: 'Timeline', details: 'Details', meetings: 'Meetings', people: 'People' };
+type Tab = 'thread' | 'brief' | 'tickets' | 'activity' | 'files' | 'timeline' | 'details' | 'env' | 'meetings' | 'people';
+const LEFT_TABS: Tab[] = ['thread', 'brief', 'tickets', 'activity', 'files', 'timeline', 'details', 'env'];
+// Wide views take the whole page width (the side column is hidden).
+const WIDE_TABS: Tab[] = ['tickets', 'files'];
+const TAB_LABELS: Record<Tab, string> = { thread: 'Thread', brief: 'Brief', tickets: 'Tickets', activity: 'Activity', files: 'Files', timeline: 'Timeline', details: 'Details', env: 'Env', meetings: 'Meetings', people: 'People' };
 
 export default function ProjectPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const { data: d, error, isLoading, mutate } = usePapi<ProjectDetail>(id ? `/api/projects/${id}` : null, { refreshInterval: 60_000 });
+  const search = useSearchParams();
   const [tab, setTab] = useState<Tab>('thread');
+  // ?tab=tickets etc. (links back from a ticket page)
+  useEffect(() => {
+    const t = search.get('tab') as Tab | null;
+    if (t && t in TAB_LABELS) setTab(t);
+  }, [search]);
   const [threadKick, setThreadKick] = useState(0);
 
   // Anything that writes a system entry: refresh the project and pull the thread now.
@@ -46,7 +61,14 @@ export default function ProjectPage() {
   const p = d.project;
   const leftView: Tab = LEFT_TABS.includes(tab) ? tab : 'thread';
   const rightMobile = tab === 'meetings' || tab === 'people';
+  const wide = WIDE_TABS.includes(tab);
+  const myMember = d.members.find((m) => sameId(m.id, user?.id));
+  const canCreateTicket = d.permissions.role === 'hr'
+    || (d.permissions.role === 'agent' && sameId(p.created_by, user?.id))
+    || (d.permissions.role === 'developer' && (myMember?.member_role === 'developer' || myMember?.member_role === 'lead_developer'));
   const currentCycle = d.cycles.find((c) => c.status === 'open') || d.cycles[d.cycles.length - 1];
+  // Env is only for HR and the project's developers; agents never see the tab.
+  const hasEnv = !!d.permissions.env && Object.values(d.permissions.env).some(Boolean);
 
   return (
     <ProjectsPage>
@@ -58,6 +80,7 @@ export default function ProjectPage() {
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-mono text-sm font-semibold text-gray-500">{p.ticket_no}</span>
             <StatusPill status={p.status} />
+            <HealthPill health={p.health} />
             <PriorityPill priority={p.priority} />
             <TypePill type={p.project_type} recurrence={p.recurrence} cycleNo={p.project_type === 'recurring' ? currentCycle?.cycle_no : null} />
           </div>
@@ -78,7 +101,7 @@ export default function ProjectPage() {
 
       {/* Tabs: left-column views on desktop; every section on mobile */}
       <div role="tablist" aria-label="Project sections" className="mb-4 flex gap-1 overflow-x-auto rounded-xl bg-gray-100 p-1 lg:inline-flex">
-        {(Object.keys(TAB_LABELS) as Tab[]).map((t) => (
+        {(Object.keys(TAB_LABELS) as Tab[]).filter((t) => t !== 'env' || hasEnv).map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
             className={cn('whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500',
               !LEFT_TABS.includes(t) && 'lg:hidden',
@@ -90,10 +113,13 @@ export default function ProjectPage() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-4 items-start">
+      <div className={cn('grid grid-cols-1 gap-4 items-start', !wide && 'lg:grid-cols-[minmax(0,1fr)_360px]')}>
         {/* Left: thread / timeline / details (kept mounted so polling continues) */}
         <div className={cn('min-w-0', rightMobile && 'hidden lg:block')}>
-          <Thread projectId={p.id} meId={user?.id} onSystemMessage={() => mutate()} refreshKey={threadKick} className={cn(leftView !== 'thread' && 'hidden')} />
+          <Thread projectId={p.id} meId={user?.id} role={d.permissions.role} canBrief={!!d.permissions.brief_add} canCreateTicket={canCreateTicket}
+            active={leftView === 'thread'} onSystemMessage={() => mutate()} refreshKey={threadKick} className={cn(leftView !== 'thread' && 'hidden')} />
+
+          {leftView === 'brief' && <BriefTab d={d} meId={user?.id} />}
 
           <div className={cn('space-y-4', leftView !== 'timeline' && 'hidden')}>
             <SectionCard title="Timeline / calendar path">
@@ -105,12 +131,20 @@ export default function ProjectPage() {
 
           <div className={cn('space-y-4', leftView !== 'details' && 'hidden')}>
             <SectionCard title="Dates"><DatesEditor d={d} onChange={changed} /></SectionCard>
-            <SectionCard title="Project & client details"><DetailsEditor d={d} onChange={changed} /></SectionCard>
+            <SectionCard title="Project & client details"><DetailsEditor d={d} onChange={changed} meId={user?.id} /></SectionCard>
+            <ReminderSettingsCard projectId={p.id} />
+            {d.permissions.role !== 'agent' && <TriageRotationCard projectId={p.id} canEdit={d.permissions.role === 'hr' || d.members.some((m) => String(m.id) === String(user?.id) && m.member_role === 'lead_developer')} />}
           </div>
+
+          {hasEnv && leftView === 'env' && <EnvVault d={d} />}
+
+          {leftView === 'tickets' && <TicketsTab d={d} meId={user?.id} />}
+          {leftView === 'activity' && <ActivityTab d={d} meId={user?.id} />}
+          {leftView === 'files' && <ProjectFiles projectId={p.id} meId={user?.id} isHr={d.permissions.role === 'hr'} />}
         </div>
 
         {/* Right: summary, people, meetings */}
-        <div className={cn('space-y-4 min-w-0', !rightMobile && 'hidden lg:block')}>
+        <div className={cn('space-y-4 min-w-0', rightMobile ? '' : wide ? 'hidden' : 'hidden lg:block')}>
           <SectionCard title="Timeline" className="hidden lg:block"
             action={<button onClick={() => setTab('timeline')} className="text-xs font-medium text-primary-600 hover:underline">Open</button>}>
             <SummaryDates d={d} />

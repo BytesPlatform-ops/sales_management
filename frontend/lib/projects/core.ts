@@ -10,32 +10,41 @@
  *              status, recurring settings; delivers / closes / reopens
  */
 import { NextRequest } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
 import { HttpError } from '@/lib/training/http';
+import { AuthError, effectiveRole, RealRole, verifyRequest } from '@/lib/auth/session';
+import { Grant, GrantLevel, guestExpired, levelAtLeast, projectGrantSql } from '@/lib/access/grants';
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
-
+/** Permission role. A CEO is 'hr' here (see lib/auth/session); `realRole` keeps 'ceo'. */
 export type Role = 'hr' | 'agent' | 'developer';
-export interface Viewer { userId: number; role: Role; name: string }
+export interface Viewer {
+  userId: number; role: Role; name: string;
+  realRole?: RealRole;
+  /** "View as" token: reads only. */
+  readonly?: boolean;
+  /** HTTP method of the request — access that comes only from a grant is read-only for writes. */
+  method?: string;
+}
 
 export async function getViewer(request: NextRequest): Promise<Viewer> {
-  const header = request.headers.get('authorization');
-  if (!header?.startsWith('Bearer ')) throw new HttpError(401, 'No token provided');
-  let payload: any;
+  let a;
   try {
-    payload = (await jwtVerify(header.slice(7), JWT_SECRET)).payload;
-  } catch {
-    throw new HttpError(401, 'Invalid or expired token');
+    a = await verifyRequest(request);
+  } catch (e) {
+    if (e instanceof AuthError) throw new HttpError(e.status, e.message);
+    throw e;
   }
-  const user = await queryOne<{ id: string; role: Role; full_name: string; is_active: boolean | null }>(
+  const user = await queryOne<{ id: string; role: RealRole; full_name: string; is_active: boolean | null }>(
     `SELECT id, role, full_name, is_active FROM users WHERE id = $1`,
-    [Number(payload.userId)]
+    [a.userId]
   );
   if (!user || user.is_active === false) throw new HttpError(401, 'Account not active');
-  return { userId: Number(user.id), role: user.role, name: user.full_name };
+  // Guest (freelance) developers lose all access when their window ends.
+  if (user.role === 'developer' && await guestExpired(Number(user.id))) throw new HttpError(401, 'Your guest access has expired');
+  return {
+    userId: Number(user.id), role: effectiveRole(user.role), realRole: user.role, name: user.full_name, readonly: a.readonly,
+    method: request.method,
+  };
 }
 
 export const STATUSES = ['new', 'in_progress', 'review', 'delivered', 'on_hold', 'closed', 'cancelled'] as const;
@@ -66,12 +75,21 @@ export interface ProjectRow {
   expected_delivery: string | null; delivered_at: string | null; closed_at: string | null; created_at: string; updated_at: string;
 }
 
-/** SQL fragment restricting projects to what the viewer may see. Uses $1 = viewer id. */
-export function visibilityClause(v: Viewer, alias = 'p'): string {
+/** Projects the viewer sees by right (HR all, developer member, agent creator) — no grants. */
+function ownAccessClause(v: Viewer, alias: string): string {
   // Reference $1 even for HR so the parameter's type is always known.
   if (v.role === 'hr') return '($1::bigint IS NOT NULL)';
   if (v.role === 'developer') return `EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = ${alias}.id AND m.user_id = $1)`;
   return `${alias}.created_by = $1`;
+}
+
+/**
+ * SQL fragment restricting projects to what the viewer may see. Uses $1 = viewer id.
+ * Includes active project-level grants (help requests); see lib/access/grants.
+ */
+export function visibilityClause(v: Viewer, alias = 'p'): string {
+  if (v.role === 'hr') return ownAccessClause(v, alias);
+  return `(${ownAccessClause(v, alias)} OR ${projectGrantSql(alias)})`;
 }
 
 /**
@@ -104,14 +122,39 @@ export function normalizeDates<T extends Record<string, any>>(row: T, keys: stri
   return out;
 }
 
-export async function loadProject(id: number, v: Viewer): Promise<ProjectRow> {
-  const p = await queryOne<ProjectRow>(
-    `SELECT p.* FROM projects p WHERE p.id = $2 AND ${visibilityClause(v)}`,
+/** How the viewer reaches a project: by right, or only through a (temporary) grant. */
+export interface ProjectAccess { via: 'own' | 'grant'; grant: Pick<Grant, 'id' | 'level' | 'scope' | 'expires_at' | 'source'> | null }
+
+const WRITE = (m?: string) => !!m && !['GET', 'HEAD', 'OPTIONS'].includes(m.toUpperCase());
+
+/**
+ * Load a project the viewer may see (404 otherwise). The row carries `access`.
+ *
+ * Access that comes ONLY from a grant is read-only: a write request (POST/PATCH/…)
+ * is refused unless the caller opts in with `grantWrite`, naming the lowest grant
+ * level that may do it (e.g. 'comment' for posting a comment). This keeps every
+ * existing developer-write route closed to helpers by default.
+ */
+export async function loadProject(id: number, v: Viewer, opts: { grantWrite?: GrantLevel } = {}): Promise<ProjectRow & { access: ProjectAccess }> {
+  const p = await queryOne<ProjectRow & { own_access: boolean; grant_json: any }>(
+    `SELECT p.*, ${ownAccessClause(v, 'p')} AS own_access,
+            (SELECT row_to_json(x) FROM (
+               SELECT g.id, g.level, g.scope, g.expires_at, g.source FROM access_grants g
+                WHERE g.grantee_id = $1 AND g.resource_type = 'project' AND g.resource_id = p.id::text
+                  AND g.revoked_at IS NULL AND g.starts_at <= NOW() AND (g.expires_at IS NULL OR g.expires_at > NOW())
+                  AND NOT COALESCE((g.scope->>'pending_approval')::boolean, false)
+                ORDER BY CASE g.level WHEN 'edit' THEN 0 WHEN 'comment' THEN 1 ELSE 2 END LIMIT 1) x) AS grant_json
+       FROM projects p WHERE p.id = $2 AND ${visibilityClause(v)}`,
     [v.userId, id]
   );
   if (!p) throw new HttpError(404, 'Project not found');
+  const { own_access, grant_json: grant, ...row } = p;
+  const access: ProjectAccess = own_access ? { via: 'own', grant: null } : { via: 'grant', grant: grant ? { ...grant, id: Number(grant.id) } : null };
+  if (access.via === 'grant' && WRITE(v.method) && !(opts.grantWrite && levelAtLeast(access.grant?.level, opts.grantWrite))) {
+    throw new HttpError(403, 'Your temporary access to this project is read-only');
+  }
   // pg returns BIGINT as strings and DATEs as local-midnight Dates; normalise both.
-  return normalizeProject(p);
+  return { ...normalizeProject(row as ProjectRow), access };
 }
 
 export function requireSupervisor(v: Viewer) {

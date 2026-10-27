@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
 
 interface JwtPayload {
   userId: number;
@@ -20,7 +16,7 @@ const VALID_STAGES = ['new_interested', 'follow_up', 'proposal_sent', 'closed_wo
  * GET /api/agent/pipeline
  * Get agent's interested leads with optional stage filter
  */
-export async function GET(request: NextRequest) {
+async function GET__handler(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -28,7 +24,7 @@ export async function GET(request: NextRequest) {
     }
 
     const token = authHeader.split(' ')[1];
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     const jwt = payload as unknown as JwtPayload;
     const agentId = Number(jwt.userId);
 
@@ -97,7 +93,7 @@ export async function GET(request: NextRequest) {
  * PUT /api/agent/pipeline
  * Update a pipeline lead (stage, follow-up, deal value, notes)
  */
-export async function PUT(request: NextRequest) {
+async function PUT__handler(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -105,7 +101,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const token = authHeader.split(' ')[1];
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     const jwt = payload as unknown as JwtPayload;
     const agentId = Number(jwt.userId);
 
@@ -166,3 +162,6 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ status: 'error', message: 'Failed to update pipeline lead' }, { status: 500 });
   }
 }
+
+export const GET = withAuth(GET__handler);
+export const PUT = withAuth(PUT__handler);

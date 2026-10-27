@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
 import { findRecordingForRequest, getClientSecret } from '@/lib/recording-lookup';
 import { recordingPlayUrl } from '@/lib/recording-links';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,13 +11,13 @@ export const dynamic = 'force-dynamic';
  * Returns a short-lived app link for an approved recording. If no recording was
  * found at approval time (3CX down, recording not saved yet), looks it up again.
  */
-export async function GET(request: NextRequest) {
+async function GET__handler(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json({ status: 'error', message: 'No token' }, { status: 401 });
     }
-    const { payload } = await jwtVerify(authHeader.split(' ')[1], JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     const jwt = payload as unknown as { userId: number };
 
     const requestId = request.nextUrl.searchParams.get('id');
@@ -63,3 +59,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ status: 'error', message: 'Failed to get download URL' }, { status: 500 });
   }
 }
+
+export const GET = withAuth(GET__handler);

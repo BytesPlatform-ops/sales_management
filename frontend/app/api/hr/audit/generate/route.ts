@@ -1,14 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query } from '@/lib/db';
 import { listRecordings, ThreeCXRecording } from '@/lib/3cx-client';
 import { assignForCalls } from '@/lib/recording-lookup';
 import { getRecordingSettings, shiftWindowPKT } from '@/lib/recording-settings';
 import { recordingPlayUrl } from '@/lib/recording-links';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 interface JwtPayload {
   userId: number;
@@ -31,7 +27,7 @@ async function verifyHRAccess(request: NextRequest): Promise<{ success: true; pa
 
   try {
     const token = authHeader.split(' ')[1];
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     const jwtPayload = payload as unknown as JwtPayload;
 
     if (jwtPayload.role !== 'hr') {
@@ -88,7 +84,7 @@ function shuffleArray<T>(array: T[]): T[] {
  * Request Body:
  * - date: YYYY-MM-DD format (required) - The shift date to audit
  */
-export async function POST(request: NextRequest) {
+async function POST__handler(request: NextRequest) {
   const authResult = await verifyHRAccess(request);
   if (!authResult.success) {
     return authResult.error;
@@ -382,3 +378,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const POST = withAuth(POST__handler);

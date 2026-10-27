@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { Plus, Video, MapPin, CheckCircle2, XCircle, Trash2, Pencil, Users, Building2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { RemindMeButton } from '@/components/reminders/Reminders';
 import { Btn, Pill, inputCls } from '@/components/training/ui';
 import { Modal, Field, selectCls, useConfirm, useToast } from './ui';
 import { papi, ProjectDetail, Meeting, fmtInTz, fmtPkt, zonedToUtcIso, utcToZoned, tzLabel, tzAbbr, today, addDays, fmtDay } from './lib';
@@ -134,6 +135,9 @@ export function Meetings({ d, onChange, className }: { d: ProjectDetail; onChang
           <button onClick={() => remove(m)} className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500"><Trash2 className="h-3.5 w-3.5" />Delete</button>
         </div>
       )}
+      <div className="mt-1 flex justify-end">
+        <RemindMeButton entityType="meeting" entityId={m.id} defaultTitle={`Meeting: ${m.title}`} variant="icon" />
+      </div>
     </li>
   );
 

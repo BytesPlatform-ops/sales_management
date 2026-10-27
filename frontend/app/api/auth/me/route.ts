@@ -1,17 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { queryOne } from '@/lib/db';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { AuthError, verifyRequest } from '@/lib/auth/session';
 
 interface User {
   id: number;
   username: string;
   full_name: string;
   extension_number: string;
-  role: 'hr' | 'agent';
+  role: 'hr' | 'agent' | 'developer' | 'ceo';
   base_salary: number;
   shift_start: string;
   shift_end: string;
@@ -20,48 +16,39 @@ interface User {
   created_at: string;
 }
 
+/**
+ * GET /api/auth/me — the signed-in user, plus how they're signed in:
+ * `view_as` (a CEO's read-only view of this user) and `admin_until` (CEO Admin mode).
+ */
 export async function GET(request: NextRequest) {
+  let a;
   try {
-    // Get token from Authorization header
-    const authHeader = request.headers.get('authorization');
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { status: 'error', message: 'No token provided' },
-        { status: 401 }
-      );
-    }
-
-    const token = authHeader.split(' ')[1];
-
-    // Verify JWT
-    const { payload } = await jwtVerify(token, JWT_SECRET);
-    const userId = payload.userId as number;
-
-    // Fetch user from database
+    a = await verifyRequest(request);
+  } catch (e) {
+    const status = e instanceof AuthError ? e.status : 401;
+    return NextResponse.json({ status: 'error', message: e instanceof AuthError ? e.message : 'Invalid or expired token' }, { status });
+  }
+  try {
     const user = await queryOne<User>(
-      `SELECT id, username, full_name, extension_number, role, base_salary, 
-              shift_start, shift_end, employment_type, is_active, created_at, updated_at 
+      `SELECT id, username, full_name, extension_number, role, base_salary,
+              shift_start, shift_end, employment_type, is_active, created_at, updated_at
        FROM users WHERE id = $1`,
-      [userId]
+      [a.userId]
     );
-
-    if (!user) {
-      return NextResponse.json(
-        { status: 'error', message: 'User not found' },
-        { status: 404 }
-      );
+    if (!user || user.is_active === false) {
+      return NextResponse.json({ status: 'error', message: 'User not found' }, { status: 404 });
     }
-
+    let viewAs = null;
+    if (a.viewAsBy) {
+      const by = await queryOne<{ full_name: string }>(`SELECT full_name FROM users WHERE id = $1`, [a.viewAsBy]);
+      viewAs = { by_id: a.viewAsBy, by_name: by?.full_name ?? 'CEO' };
+    }
     return NextResponse.json({
       status: 'success',
-      data: user,
+      data: { ...user, view_as: viewAs, readonly: a.readonly, admin_until: a.adminActive ? a.adminUntil : null },
     });
   } catch (error) {
     console.error('Get me error:', error);
-    return NextResponse.json(
-      { status: 'error', message: 'Invalid or expired token' },
-      { status: 401 }
-    );
+    return NextResponse.json({ status: 'error', message: 'Internal error' }, { status: 500 });
   }
 }

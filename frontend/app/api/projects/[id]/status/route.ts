@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { query, queryOne } from '@/lib/db';
 import { handler, ok, readJson, HttpError } from '@/lib/training/http';
 import { getViewer, loadProject, systemMessage, canSetStatus, STATUSES, STATUS_LABELS, Status, normalizeProject } from '@/lib/projects/core';
+import { notify } from '@/lib/notifications';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +31,12 @@ export const POST = handler(async (request: NextRequest, { params }: { params: {
     `${v.name} ${reopened ? 'reopened the project' : 'moved this'} to ${STATUS_LABELS[status as Status]}${note ? `: “${String(note).slice(0, 500)}”` : '.'}`,
     v.userId
   );
+  // The agent whose client it is hears about every status change.
+  await notify({
+    users: [Number(p.created_by)], actorId: v.userId, type: 'project_status',
+    body: `${p.ticket_no} ${p.title} is now ${STATUS_LABELS[status as Status]}${note ? `: ${String(note).slice(0, 200)}` : ''}`,
+    link: `/projects/${p.id}`, projectId: p.id, entity: { type: 'project', id: p.id },
+  });
   if (status === 'closed' || status === 'cancelled') {
     // Nothing more is due: close the open recurring cycle.
     await query(`UPDATE project_cycles SET status = 'skipped' WHERE project_id = $1 AND status = 'open' AND period_start > CURRENT_DATE`, [p.id]);

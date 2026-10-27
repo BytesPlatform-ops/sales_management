@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { requireHR, errorResponse, auditLog, HttpError } from '@/lib/hr-auth';
 import { buildMonthlyReports, sanitizeFilename } from '@/lib/payroll-report-service';
 import { buildIndividualPdf } from '@/lib/payroll-report-pdf';
+import { logIfCeo } from '@/lib/auth/ceo';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,6 +12,7 @@ export async function GET(request: NextRequest, { params }: { params: { agentId:
   try {
     const actor = await requireHR(request);
     const agentId = Number(params.agentId);
+    await logIfCeo(request, 'payroll_person', `payroll PDF for user #${agentId}`);
     if (!Number.isInteger(agentId) || agentId <= 0) throw new HttpError(400, 'Invalid agent id');
     const { searchParams } = new URL(request.url);
     const month = searchParams.get('month') || '';

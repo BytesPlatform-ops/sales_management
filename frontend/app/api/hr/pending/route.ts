@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query } from '@/lib/db';
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
-
-export async function GET(request: NextRequest) {
+async function GET__handler(request: NextRequest) {
   try {
     // Verify JWT token
     const authHeader = request.headers.get('authorization');
@@ -19,7 +15,7 @@ export async function GET(request: NextRequest) {
     }
 
     const token = authHeader.split(' ')[1];
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     
     // Check if user is HR
     if (payload.role !== 'hr') {
@@ -52,3 +48,5 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export const GET = withAuth(GET__handler);

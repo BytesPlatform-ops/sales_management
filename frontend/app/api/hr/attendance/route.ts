@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 interface JwtPayload {
   userId: number;
@@ -13,7 +9,7 @@ interface JwtPayload {
 }
 
 // GET - Get attendance records by date
-export async function GET(request: NextRequest) {
+async function GET__handler(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
 
@@ -25,7 +21,7 @@ export async function GET(request: NextRequest) {
     }
 
     const token = authHeader.split(' ')[1];
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     const jwtPayload = payload as unknown as JwtPayload;
 
     // Check if user is HR
@@ -79,7 +75,7 @@ export async function GET(request: NextRequest) {
 }
 
 // PUT - Update attendance record (approve, change status, etc.)
-export async function PUT(request: NextRequest) {
+async function PUT__handler(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
 
@@ -91,7 +87,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const token = authHeader.split(' ')[1];
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     const jwtPayload = payload as unknown as JwtPayload;
 
     // Check if user is HR
@@ -171,3 +167,6 @@ export async function PUT(request: NextRequest) {
     );
   }
 }
+
+export const GET = withAuth(GET__handler);
+export const PUT = withAuth(PUT__handler);

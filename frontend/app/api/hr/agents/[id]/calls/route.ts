@@ -1,16 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
 import { getRecordingSettings } from '@/lib/recording-settings';
 import { getShiftDate } from '@/lib/shift-date';
 import { DURATION_SEC_SQL, loadShiftCalls } from '@/lib/agent-calls';
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
 
 interface JwtPayload {
   userId: number;
@@ -27,14 +23,14 @@ interface JwtPayload {
  * pipeline has processed it — transcript and QA score. Also returns the last
  * 30 shift dates with call counts for the date picker.
  */
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+async function GET__handler(request: NextRequest, { params }: { params: { id: string } }) {
   const authHeader = request.headers.get('authorization');
   if (!authHeader?.startsWith('Bearer ')) {
     return NextResponse.json({ status: 'error', message: 'No token provided' }, { status: 401 });
   }
   let jwt: JwtPayload;
   try {
-    const { payload } = await jwtVerify(authHeader.split(' ')[1], JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     jwt = payload as unknown as JwtPayload;
   } catch {
     return NextResponse.json({ status: 'error', message: 'Invalid token' }, { status: 401 });
@@ -94,3 +90,5 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     return NextResponse.json({ status: 'error', message: 'Failed to load calls' }, { status: 500 });
   }
 }
+
+export const GET = withAuth(GET__handler);

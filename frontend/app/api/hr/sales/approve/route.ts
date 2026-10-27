@@ -6,13 +6,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query, queryOne, pool } from '@/lib/db';
 import { getShiftStartTimeUTC } from '@/lib/attendance-utils';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 interface Sale {
   id: string;
@@ -32,7 +28,7 @@ interface User {
   sales_target: number;
 }
 
-export async function POST(request: NextRequest) {
+async function POST__handler(request: NextRequest) {
   const client = await pool.connect();
   
   try {
@@ -50,7 +46,7 @@ export async function POST(request: NextRequest) {
     
     let payload;
     try {
-      const { payload: verifiedPayload } = await jwtVerify(token, JWT_SECRET);
+      const { payload: verifiedPayload } = await legacyAuth(request);
       payload = verifiedPayload;
     } catch {
       return NextResponse.json(
@@ -210,7 +206,7 @@ export async function POST(request: NextRequest) {
 }
 
 // GET - Get all pending sales for HR review
-export async function GET(request: NextRequest) {
+async function GET__handler(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
     
@@ -225,7 +221,7 @@ export async function GET(request: NextRequest) {
     
     let payload;
     try {
-      const { payload: verifiedPayload } = await jwtVerify(token, JWT_SECRET);
+      const { payload: verifiedPayload } = await legacyAuth(request);
       payload = verifiedPayload;
     } catch {
       return NextResponse.json(
@@ -275,3 +271,6 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export const POST = withAuth(POST__handler);
+export const GET = withAuth(GET__handler);

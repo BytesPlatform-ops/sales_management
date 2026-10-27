@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
 import {
   calculateSalaryBreakdown,
@@ -21,10 +20,7 @@ import {
   formatDurationHuman,
 } from '@/lib/date-utils';
 import { getCurrentShiftWindow, getShiftStartTimeUTC, isWeekendShift } from '@/lib/attendance-utils';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 interface User {
   id: number;
@@ -62,7 +58,7 @@ interface SystemSettings {
   value: string;
 }
 
-export async function GET(request: NextRequest) {
+async function GET__handler(request: NextRequest) {
   try {
     // Verify JWT token
     const authHeader = request.headers.get('authorization');
@@ -75,7 +71,7 @@ export async function GET(request: NextRequest) {
     }
 
     const token = authHeader.split(' ')[1];
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     const userId = payload.userId as number;
 
     // Fetch user data
@@ -454,3 +450,5 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export const GET = withAuth(GET__handler);

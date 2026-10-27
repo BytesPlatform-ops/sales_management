@@ -3,16 +3,16 @@
  * Same JWT contract as the rest of the app: role 'hr' = trainer/admin, 'agent' = rep.
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { AuthError, RealRole, verifyRequest } from '@/lib/auth/session';
 
 export interface AuthUser {
   userId: number;
   username: string;
+  /** 'hr' also for a CEO (who acts with HR's permissions; see lib/auth/session). */
   role: 'hr' | 'agent';
+  realRole?: RealRole;
+  /** A CEO's read-only "view as" token. */
+  readonly?: boolean;
 }
 
 export class HttpError extends Error {
@@ -22,18 +22,12 @@ export class HttpError extends Error {
 }
 
 export async function getAuth(request: NextRequest): Promise<AuthUser> {
-  const header = request.headers.get('authorization');
-  if (!header || !header.startsWith('Bearer ')) throw new HttpError(401, 'No token provided');
   try {
-    const { payload } = await jwtVerify(header.split(' ')[1], JWT_SECRET);
-    // JWT userId can arrive as a string — always normalise.
-    return {
-      userId: Number(payload.userId),
-      username: String(payload.username || ''),
-      role: payload.role === 'hr' ? 'hr' : 'agent',
-    };
-  } catch {
-    throw new HttpError(401, 'Invalid or expired token');
+    const a = await verifyRequest(request);
+    return { userId: a.userId, username: a.username, role: a.effectiveRole === 'hr' ? 'hr' : 'agent', realRole: a.role, readonly: a.readonly };
+  } catch (e) {
+    if (e instanceof AuthError) throw new HttpError(e.status, e.message);
+    throw e;
   }
 }
 
@@ -69,6 +63,9 @@ export function ok(data: unknown, extra: Record<string, unknown> = {}) {
 }
 
 export function fail(err: unknown) {
+  if (err instanceof AuthError) {
+    return NextResponse.json({ status: 'error', message: err.message }, { status: err.status });
+  }
   if (err instanceof HttpError) {
     return NextResponse.json({ status: 'error', message: err.message }, { status: err.status });
   }
@@ -77,6 +74,12 @@ export function fail(err: unknown) {
   if (/relation "(training_|ai_)\w+" does not exist/.test(message)) {
     return NextResponse.json(
       { status: 'error', message: 'Training module is not installed yet (run scripts/apply-training-migration.js).' },
+      { status: 503 }
+    );
+  }
+  if (/relation "vault_\w+" does not exist/.test(message)) {
+    return NextResponse.json(
+      { status: 'error', message: 'Project Env is not installed yet (run database/migrations/create_project_env.sql).' },
       { status: 503 }
     );
   }

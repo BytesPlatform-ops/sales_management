@@ -11,6 +11,7 @@ import { usePapi, papi, fmtDay } from '@/components/projects/lib';
 interface Developer {
   id: string | number; username: string; full_name: string; email: string | null; is_active: boolean; created_at: string;
   open_projects: number; total_projects: number;
+  is_guest?: boolean; guest_expires_at?: string | null; skills?: string[];
 }
 
 export default function DevelopersPage() {
@@ -28,6 +29,17 @@ function Developers() {
   const [formErr, setFormErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [resetFor, setResetFor] = useState<Developer | null>(null);
+  // Guest (freelance) developers: only explicitly shared/assigned projects, never auto-picked, access ends on a date.
+  const [guestFor, setGuestFor] = useState<Developer | null>(null);
+  const [guestUntil, setGuestUntil] = useState('');
+  async function saveGuest(isGuest: boolean) {
+    if (!guestFor) return;
+    try {
+      await papi(`/api/hr/developers/${guestFor.id}/profile`, { method: 'PUT', body: { is_guest: isGuest, guest_expires_at: isGuest && guestUntil ? new Date(guestUntil + 'T23:59:59+05:00').toISOString() : null } });
+      toast(isGuest ? `${guestFor.full_name} is a guest` : `${guestFor.full_name} is staff again`);
+      setGuestFor(null); mutate();
+    } catch (e) { toast((e as Error).message, 'error'); }
+  }
   const [newPw, setNewPw] = useState('');
 
   if (user && !isHr) {
@@ -109,6 +121,7 @@ function Developers() {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold text-gray-900 truncate">{d.full_name}</span>
                     {d.is_active ? <Pill tone="green">Active</Pill> : <Pill tone="gray">Deactivated</Pill>}
+                    {d.is_guest && <Pill tone="amber">Guest{d.guest_expires_at ? ` until ${fmtDay(d.guest_expires_at.slice(0, 10))}` : ''}</Pill>}
                   </div>
                   <div className="text-sm text-gray-500 truncate">@{d.username}{d.email && <> · {d.email}</>}</div>
                   <div className="mt-1 text-xs text-gray-500">Added {fmtDay(d.created_at)}</div>
@@ -120,6 +133,7 @@ function Developers() {
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Btn size="sm" variant="secondary" onClick={() => { setNewPw(''); setFormErr(null); setResetFor(d); }}><KeyRound className="h-4 w-4" />Reset password</Btn>
+                <Btn size="sm" variant="ghost" onClick={() => { setGuestUntil(d.guest_expires_at ? d.guest_expires_at.slice(0, 10) : ''); setGuestFor(d); }}>{d.is_guest ? 'Guest settings' : 'Make guest'}</Btn>
                 <Btn size="sm" variant={d.is_active ? 'ghost' : 'secondary'} onClick={() => toggle(d)} className={d.is_active ? 'text-red-600 hover:bg-red-50' : ''}>
                   {d.is_active ? <><UserX className="h-4 w-4" />Deactivate</> : <><UserCheck className="h-4 w-4" />Reactivate</>}
                 </Btn>
@@ -128,6 +142,16 @@ function Developers() {
           ))}
         </ul>
       )}
+
+      <Modal open={!!guestFor} onClose={() => setGuestFor(null)} title={`Guest access · ${guestFor?.full_name ?? ''}`} size="sm"
+        footer={<>
+          {guestFor?.is_guest && <Btn variant="ghost" onClick={() => saveGuest(false)}>Make staff</Btn>}
+          <Btn variant="secondary" onClick={() => setGuestFor(null)}>Cancel</Btn>
+          <Btn onClick={() => saveGuest(true)}>Save as guest</Btn>
+        </>}>
+        <p className="mb-3 text-sm text-gray-600">Guests see only projects they’re put on or that are shared with them, are never picked automatically for reviews, triage or help, and lose all access after the end date.</p>
+        <Field label="Access ends (PKT, optional)" htmlFor="guest-until"><input id="guest-until" type="date" className={inputCls} value={guestUntil} onChange={(e) => setGuestUntil(e.target.value)} /></Field>
+      </Modal>
 
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="Add a developer"
         footer={<><Btn variant="secondary" onClick={() => setCreateOpen(false)}>Cancel</Btn><Btn onClick={create} disabled={saving}>{saving ? 'Creating…' : 'Create account'}</Btn></>}>

@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query } from '@/lib/db';
 import { testConnection, listRecordings } from '@/lib/3cx-client';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 const THREECX_BASE_URL = process.env.THREECX_BASE_URL || 'https://bytesplatform.tx.3cx.us';
 const THREECX_CLIENT_ID = process.env.THREECX_CLIENT_ID || 'sales';
@@ -28,7 +24,7 @@ async function verifyHRAccess(request: NextRequest): Promise<{ success: true; pa
 
   try {
     const token = authHeader.split(' ')[1];
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     const jwtPayload = payload as unknown as JwtPayload;
 
     if (jwtPayload.role !== 'hr') {
@@ -52,7 +48,7 @@ async function verifyHRAccess(request: NextRequest): Promise<{ success: true; pa
  * 
  * Test 3CX API connection using OAuth client credentials flow
  */
-export async function GET(request: NextRequest) {
+async function GET__handler(request: NextRequest) {
   const authResult = await verifyHRAccess(request);
   if (!authResult.success) {
     return authResult.error;
@@ -120,3 +116,5 @@ export async function GET(request: NextRequest) {
     },
   });
 }
+
+export const GET = withAuth(GET__handler);

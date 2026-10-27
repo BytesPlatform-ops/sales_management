@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 interface JwtPayload {
   userId: number;
@@ -20,7 +16,7 @@ export const dynamic = 'force-dynamic';
  * Flips a weekly_report between draft/low_data and published. HR only.
  * Publishing is the human-in-the-loop gate before an agent can see the report.
  */
-export async function POST(request: NextRequest) {
+async function POST__handler(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
     if (!authHeader?.startsWith('Bearer ')) {
@@ -29,7 +25,7 @@ export async function POST(request: NextRequest) {
 
     let jwt: JwtPayload;
     try {
-      const { payload } = await jwtVerify(authHeader.split(' ')[1], JWT_SECRET);
+      const { payload } = await legacyAuth(request);
       jwt = payload as unknown as JwtPayload;
     } catch {
       return NextResponse.json({ status: 'error', message: 'Invalid token' }, { status: 401 });
@@ -66,3 +62,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: 'error', message: 'Internal error' }, { status: 500 });
   }
 }
+
+export const POST = withAuth(POST__handler);

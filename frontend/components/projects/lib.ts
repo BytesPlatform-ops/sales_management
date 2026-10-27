@@ -66,12 +66,19 @@ export interface Project {
   created_by: string | number; supervisor_id: string | number | null; start_date: string | null; deadline: string | null;
   expected_delivery: string | null; delivered_at: string | null; closed_at: string | null; created_at: string; updated_at: string;
   created_by_name?: string | null; supervisor_name?: string | null;
+  // GitHub / manual tracking + health (Phase 7)
+  health?: 'green' | 'yellow' | 'red'; last_activity_at?: string | null; tracking_source?: 'github' | 'manual';
+  staging_url?: string | null; ready_to_deliver_at?: string | null; production_env_name?: string;
 }
 export interface Permissions {
   role: Role; edit_details: boolean; edit_dates: boolean; manage_members: boolean; manage_milestones: boolean;
   manage_meetings: boolean; set_status: boolean; deliver_cycle: boolean; close: boolean;
+  env?: Record<'development' | 'staging' | 'production', boolean>;
+  /** Present when the viewer reaches this project only through a temporary/shared grant. */
+  grant?: { level: 'view' | 'comment' | 'edit'; expires_at: string | null; source: string | null } | null;
+  brief_add?: boolean;
 }
-export interface ProjectDetail { project: Project; members: Member[]; milestones: Milestone[]; meetings: Meeting[]; cycles: Cycle[]; permissions: Permissions }
+export interface ProjectDetail { project: Project; members: Member[]; milestones: Milestone[]; meetings: Meeting[]; cycles: Cycle[]; permissions: Permissions; brief_entry_id?: number }
 export interface ListProject extends Project {
   members: Member[]; unread: number; next_meeting: { id: number; title: string; starts_at: string; kind: string } | null;
   milestones_done: string | null; current_cycle: { cycle_no: number; period_start: string; period_end: string; status: string } | null;

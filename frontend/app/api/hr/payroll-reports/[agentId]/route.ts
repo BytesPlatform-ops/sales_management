@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireHR, errorResponse, auditLog, HttpError } from '@/lib/hr-auth';
 import { buildMonthlyReports } from '@/lib/payroll-report-service';
+import { logIfCeo } from '@/lib/auth/ceo';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,6 +12,7 @@ export async function GET(request: NextRequest, { params }: { params: { agentId:
   try {
     const actor = await requireHR(request);
     const agentId = Number(params.agentId);
+    await logIfCeo(request, 'payroll_person', `payroll report for user #${agentId}`);
     if (!Number.isInteger(agentId) || agentId <= 0) {
       throw new HttpError(400, 'Invalid agent id');
     }

@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 const CX_HOST = process.env.CX_HOST || 'your-3cx-host.3cx.com';
 
@@ -22,7 +18,7 @@ interface LeadRecord {
   assigned_agent_id: number | null;
 }
 
-export async function POST(request: NextRequest) {
+async function POST__handler(request: NextRequest) {
   try {
     // 1. Verify JWT token
     const authHeader = request.headers.get('authorization');
@@ -35,7 +31,7 @@ export async function POST(request: NextRequest) {
     }
 
     const token = authHeader.split(' ')[1];
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     const jwtPayload = payload as unknown as JwtPayload;
 
     // 2. Parse request body
@@ -137,3 +133,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const POST = withAuth(POST__handler);

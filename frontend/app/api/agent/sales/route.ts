@@ -5,13 +5,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
 import { getShiftStartTimeUTC } from '@/lib/attendance-utils';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 interface User {
   id: number;
@@ -42,7 +38,7 @@ async function verifyAuth(request: NextRequest): Promise<{ userId: number; role:
 
   try {
     const token = authHeader.split(' ')[1];
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     return {
       userId: payload.userId as number,
       role: payload.role as string,
@@ -53,7 +49,7 @@ async function verifyAuth(request: NextRequest): Promise<{ userId: number; role:
 }
 
 // GET - List all sales for the agent
-export async function GET(request: NextRequest) {
+async function GET__handler(request: NextRequest) {
   try {
     const auth = await verifyAuth(request);
     
@@ -117,7 +113,7 @@ export async function GET(request: NextRequest) {
 }
 
 // POST - Create a new sale
-export async function POST(request: NextRequest) {
+async function POST__handler(request: NextRequest) {
   try {
     const auth = await verifyAuth(request);
     
@@ -208,3 +204,6 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const GET = withAuth(GET__handler);
+export const POST = withAuth(POST__handler);

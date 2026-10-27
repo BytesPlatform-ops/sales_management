@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query } from '@/lib/db';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 interface JwtPayload {
   userId: number;
@@ -89,7 +85,7 @@ interface EvaluationRow {
  *   ?date=YYYY-MM-DD            -> daily roll-up for all agents on that shift date
  *   ?date=YYYY-MM-DD&agentId=5  -> individual call evaluations for that agent (drill-down)
  */
-export async function GET(request: NextRequest) {
+async function GET__handler(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -98,7 +94,7 @@ export async function GET(request: NextRequest) {
 
     let jwtPayload: JwtPayload;
     try {
-      const { payload } = await jwtVerify(authHeader.split(' ')[1], JWT_SECRET);
+      const { payload } = await legacyAuth(request);
       jwtPayload = payload as unknown as JwtPayload;
     } catch {
       return NextResponse.json({ status: 'error', message: 'Invalid token' }, { status: 401 });
@@ -170,3 +166,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ status: 'error', message: 'Internal error' }, { status: 500 });
   }
 }
+
+export const GET = withAuth(GET__handler);

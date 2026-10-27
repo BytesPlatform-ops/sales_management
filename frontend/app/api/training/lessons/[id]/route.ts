@@ -23,8 +23,8 @@ export const GET = handler(async (request: NextRequest, { params }: { params: { 
   if (auth.role !== 'hr') {
     view = await assertLessonUnlocked(auth.userId, id);
     if (!view?.unlocked) throw new HttpError(403, view?.lock_hint || 'This lesson is locked');
-    // Opening a lesson marks it in progress (also unlocks its flashcards for review).
-    await query(
+    // Opening a lesson marks it in progress (also unlocks its flashcards for review) — not in view-as.
+    if (!auth.readonly) await query(
       `INSERT INTO training_lesson_progress (user_id, lesson_id, status) VALUES ($1, $2, 'in_progress') ON CONFLICT DO NOTHING`,
       [auth.userId, id]
     );

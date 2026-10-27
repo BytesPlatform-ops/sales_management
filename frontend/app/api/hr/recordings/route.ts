@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
 import { searchRecordingsByPhone, getRecordingById, recordingDurationSec } from '@/lib/3cx-client';
 import { findRecordingForRequest, getClientSecret } from '@/lib/recording-lookup';
 import { recordingPlayUrl } from '@/lib/recording-links';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 interface JwtPayload {
   userId: number;
@@ -25,7 +21,7 @@ async function verifyHR(request: NextRequest): Promise<JwtPayload | NextResponse
     return NextResponse.json({ status: 'error', message: 'No token' }, { status: 401 });
   }
   try {
-    const { payload } = await jwtVerify(authHeader.split(' ')[1], JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     const jwt = payload as unknown as JwtPayload;
     if (jwt.role !== 'hr') {
       return NextResponse.json({ status: 'error', message: 'HR only' }, { status: 403 });
@@ -40,7 +36,7 @@ async function verifyHR(request: NextRequest): Promise<JwtPayload | NextResponse
  * GET /api/hr/recordings?status=pending|approved|rejected|all|missing
  * "missing" = approved but no recording linked yet.
  */
-export async function GET(request: NextRequest) {
+async function GET__handler(request: NextRequest) {
   const jwt = await verifyHR(request);
   if (jwt instanceof NextResponse) return jwt;
 
@@ -107,7 +103,7 @@ function lookupMessage(prefix: string, recId: string | null, error?: string) {
  *   link { rec_id }             — attach a recording HR picked (also approves a pending request)
  *   unlink                      — remove a wrongly attached recording
  */
-export async function POST(request: NextRequest) {
+async function POST__handler(request: NextRequest) {
   const jwt = await verifyHR(request);
   if (jwt instanceof NextResponse) return jwt;
 
@@ -229,3 +225,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ status: 'error', message: 'Failed to process request' }, { status: 500 });
   }
 }
+
+export const GET = withAuth(GET__handler);
+export const POST = withAuth(POST__handler);

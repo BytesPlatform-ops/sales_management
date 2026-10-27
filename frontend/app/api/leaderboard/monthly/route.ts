@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query } from '@/lib/db';
 import { currentShiftDateSql, shiftCallTotalsSql } from '@/lib/call-stats';
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
-
-export async function GET(request: NextRequest) {
+async function GET__handler(request: NextRequest) {
   try {
     // Verify JWT token
     const authHeader = request.headers.get('authorization');
@@ -20,7 +16,7 @@ export async function GET(request: NextRequest) {
     }
 
     const token = authHeader.split(' ')[1];
-    await jwtVerify(token, JWT_SECRET);
+    await legacyAuth(request);
 
     // This month = shift dates from the 1st to each agent's current shift date,
     // counted the shared way (lib/call-stats.ts), plus HR-added meeting time.
@@ -86,3 +82,5 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export const GET = withAuth(GET__handler);

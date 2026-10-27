@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
 import { getShiftStartTimeUTC } from '@/lib/attendance-utils';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 interface User {
   id: number;
@@ -16,7 +12,7 @@ interface User {
   shift_end: string;
 }
 
-export async function POST(request: NextRequest) {
+async function POST__handler(request: NextRequest) {
   try {
     // Verify JWT token
     const authHeader = request.headers.get('authorization');
@@ -29,7 +25,7 @@ export async function POST(request: NextRequest) {
     }
 
     const token = authHeader.split(' ')[1];
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await legacyAuth(request);
     const userId = payload.userId as number;
 
     // Parse request body
@@ -160,3 +156,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const POST = withAuth(POST__handler);

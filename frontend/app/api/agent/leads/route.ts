@@ -5,12 +5,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
-);
+import { legacyAuth, withAuth } from '@/lib/auth/session';
 
 interface AgentLead {
   id: string;
@@ -21,7 +17,7 @@ interface AgentLead {
   created_at: string;
 }
 
-export async function POST(request: NextRequest) {
+async function POST__handler(request: NextRequest) {
   try {
     // Verify JWT token
     const authHeader = request.headers.get('authorization');
@@ -37,7 +33,7 @@ export async function POST(request: NextRequest) {
     
     let payload;
     try {
-      const { payload: verifiedPayload } = await jwtVerify(token, JWT_SECRET);
+      const { payload: verifiedPayload } = await legacyAuth(request);
       payload = verifiedPayload;
     } catch {
       return NextResponse.json(
@@ -114,7 +110,7 @@ export async function POST(request: NextRequest) {
 }
 
 // GET - Get agent's submitted leads
-export async function GET(request: NextRequest) {
+async function GET__handler(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
     
@@ -129,7 +125,7 @@ export async function GET(request: NextRequest) {
     
     let payload;
     try {
-      const { payload: verifiedPayload } = await jwtVerify(token, JWT_SECRET);
+      const { payload: verifiedPayload } = await legacyAuth(request);
       payload = verifiedPayload;
     } catch {
       return NextResponse.json(
@@ -170,3 +166,6 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export const POST = withAuth(POST__handler);
+export const GET = withAuth(GET__handler);
