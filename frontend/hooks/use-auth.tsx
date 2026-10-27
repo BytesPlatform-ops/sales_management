@@ -31,7 +31,7 @@ interface LoginResult {
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: (username: string, password: string) => Promise<LoginResult | null>;
+  login: (username: string, password: string, remember?: boolean) => Promise<LoginResult | null>;
   logout: () => void;
   isAuthenticated: boolean;
 }
@@ -66,8 +66,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function login(username: string, password: string): Promise<LoginResult | null> {
-    const response = await api.login(username, password);
+  async function login(username: string, password: string, remember = false): Promise<LoginResult | null> {
+    const response = await api.login(username, password, remember);
     
     if (response.data?.user) {
       setUser(response.data.user);

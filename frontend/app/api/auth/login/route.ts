@@ -40,6 +40,8 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { username, password } = body;
+    // "Remember me": stay signed in for 30 days; otherwise one shift (12 h)
+    const remember = body.remember === true;
 
     // Validate input
     if (!username || !password) {
@@ -89,7 +91,7 @@ export async function POST(request: NextRequest) {
     })
       .setProtectedHeader({ alg: 'HS256' })
       .setIssuedAt()
-      .setExpirationTime('7d')
+      .setExpirationTime(remember ? '30d' : '12h')
       .sign(JWT_SECRET);
 
     // 4. Handle attendance for agents (not HR)

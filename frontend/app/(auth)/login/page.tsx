@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Clock, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
+import { Clock, AlertCircle, CheckCircle, Loader2, Eye, EyeOff } from 'lucide-react';
 import { SpotlightCard } from '@/components/ui/SpotlightCard';
 import { GamifiedSubmitButton } from '@/components/ui/GamifiedSubmitButton';
 import { useRouter } from 'next/navigation';
@@ -223,6 +223,19 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [attendance, setAttendance] = useState<AttendanceInfo | null>(null);
   const [isPasswordFocused, setIsPasswordFocused] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [remember, setRemember] = useState(false);
+
+  // "Remember me" also remembers the username on this device
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('remembered_username');
+      if (saved) {
+        setUsername(saved);
+        setRemember(true);
+      }
+    } catch {}
+  }, []);
   
   // Use ref for role to avoid async state issues
   const userRoleRef = useRef<'hr' | 'agent' | 'developer' | null>(null);
@@ -233,7 +246,11 @@ export default function LoginPage() {
     setAttendance(null);
 
     try {
-      const result = await login(username, password);
+      const result = await login(username, password, remember);
+      try {
+        if (remember) localStorage.setItem('remembered_username', username);
+        else localStorage.removeItem('remembered_username');
+      } catch {}
       
       if (result?.attendance?.isNewRecord) {
         setAttendance(result.attendance);
@@ -401,18 +418,45 @@ export default function LoginPage() {
               <label className="block text-sm font-medium text-gray-700">
                 Password
               </label>
-              <motion.input
-                type="password"
-                placeholder="Enter your password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onFocus={() => setIsPasswordFocused(true)}
-                onBlur={() => setIsPasswordFocused(false)}
-                required
-                className="w-full px-4 py-3 bg-white/80 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all duration-200 text-gray-900 placeholder-gray-400"
-                whileFocus={{ scale: 1.01 }}
-              />
+              <div className="relative">
+                <motion.input
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Enter your password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onFocus={() => setIsPasswordFocused(!showPassword)}
+                  onBlur={() => setIsPasswordFocused(false)}
+                  required
+                  autoComplete="current-password"
+                  className="w-full pl-4 pr-12 py-3 bg-white/80 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all duration-200 text-gray-900 placeholder-gray-400"
+                  whileFocus={{ scale: 1.01 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPassword((v) => !v);
+                    setIsPasswordFocused(false);
+                  }}
+                  onMouseDown={(e) => e.preventDefault()}
+                  className="absolute inset-y-0 right-0 flex items-center px-4 text-gray-400 hover:text-indigo-600 transition-colors"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  title={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                </button>
+              </div>
             </div>
+
+            {/* Remember me */}
+            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              Remember me for 30 days
+            </label>
 
             {/* Gamified Sign In Button */}
             <GamifiedSubmitButton

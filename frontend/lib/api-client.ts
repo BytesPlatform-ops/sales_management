@@ -79,10 +79,10 @@ class ApiClient {
   }
 
   // Auth
-  async login(username: string, password: string): Promise<ApiResponse<LoginResponse>> {
+  async login(username: string, password: string, remember = false): Promise<ApiResponse<LoginResponse>> {
     const response = await this.request<LoginResponse>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, remember }),
     });
 
     if (response.data?.token) {
