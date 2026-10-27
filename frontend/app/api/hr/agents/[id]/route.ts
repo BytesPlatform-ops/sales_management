@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
+import { shiftCallTotalsSql } from '@/lib/call-stats';
 import bcrypt from 'bcryptjs';
 
 const JWT_SECRET = new TextEncoder().encode(
@@ -112,15 +113,21 @@ export async function GET(
       [agentId]
     );
 
-    const statsSql = (where: string) =>
-      `SELECT COALESCE(SUM(calls_count), 0) AS calls,
-              COALESCE(SUM(talk_time_seconds), 0) AS talk_time_seconds,
-              COALESCE(SUM(leads_count), 0) AS leads,
+    // Per shift date: calls and call talk time from call_logs (lib/call-stats.ts)
+    // plus HR-added meeting time; daily_stats alone on days without call_logs.
+    const statsSql = (fromDate: string) =>
+      `WITH c AS ${shiftCallTotalsSql(fromDate, 'CURRENT_DATE + 1', 'AND u.id = $1')},
+            d AS (SELECT date::text AS date, calls_count, talk_time_seconds,
+                         COALESCE(meeting_seconds, 0) AS meeting_seconds, leads_count
+                    FROM daily_stats WHERE user_id = $1 AND date >= ${fromDate})
+       SELECT COALESCE(SUM(CASE WHEN c.date IS NOT NULL THEN c.calls_count ELSE d.calls_count END), 0) AS calls,
+              COALESCE(SUM(CASE WHEN c.date IS NOT NULL THEN c.talk_time_seconds + COALESCE(d.meeting_seconds, 0)
+                                ELSE d.talk_time_seconds END), 0) AS talk_time_seconds,
+              COALESCE(SUM(d.leads_count), 0) AS leads,
               COUNT(*) AS days_worked
-       FROM daily_stats
-       WHERE user_id = $1 ${where}`;
-    const monthStats = await queryOne<Record<string, string>>(statsSql(`AND date >= ${monthStart}`), [agentId]);
-    const lifetimeStats = await queryOne<Record<string, string>>(statsSql(''), [agentId]);
+         FROM d FULL JOIN c ON c.date = d.date`;
+    const monthStats = await queryOne<Record<string, string>>(statsSql(monthStart), [agentId]);
+    const lifetimeStats = await queryOne<Record<string, string>>(statsSql(`'2000-01-01'::date`), [agentId]);
 
     const salesSql = (where: string) =>
       `SELECT COUNT(*) AS count, COALESCE(SUM(amount_collected), 0) AS collected

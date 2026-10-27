@@ -35,6 +35,7 @@ import {
   DailyTargets,
 } from './salary-utils';
 import { getAllTargets, AllTargets } from './targets';
+import { mergeDay, shiftCallTotalsSql } from './call-stats';
 
 export const PAYROLL_POLICY_NOTES = {
   source: 'lib/salary-utils.ts (official payroll primitives)',
@@ -521,9 +522,10 @@ interface DailyStatsRow {
   calls_count: string | number;
   talk_time_seconds: string | number;
   leads_count: string | number;
+  meeting_seconds: string | number;
 }
 interface CallLogRow {
-  agent_extension: string;
+  user_id: number;
   date: string;
   calls_count: string | number;
   talk_time_seconds: string | number;
@@ -583,38 +585,15 @@ export async function buildMonthlyReports(
   const rangeParams = [monthStart, monthEnd];
   const [dailyStatsRows, callLogRows, attendanceRows] = await Promise.all([
     query<DailyStatsRow>(
-      `SELECT user_id, date::text, calls_count, talk_time_seconds, leads_count
+      `SELECT user_id, date::text, calls_count, talk_time_seconds, leads_count,
+              COALESCE(meeting_seconds, 0) AS meeting_seconds
          FROM daily_stats WHERE date >= $1 AND date <= $2`,
       rangeParams
     ),
+    // Calls per agent per shift date (lib/call-stats.ts): every call counts;
+    // talk time only from calls >= 30 s; each agent's own shift times.
     query<CallLogRow>(
-      `SELECT agent_extension,
-              (call_time AT TIME ZONE 'Asia/Karachi')::date::text as date,
-              COUNT(*) as calls_count,
-              -- Talk time counts ONLY calls >= 30 seconds (0s/short calls still
-              -- count toward calls_count above, but not toward talk time). This
-              -- matches the official /api/hr/payroll methodology.
-              COALESCE(SUM(
-                CASE
-                  WHEN call_duration ~ '^\\d+:\\d+:\\d+$'
-                       AND (SPLIT_PART(call_duration, ':', 1)::int * 3600 +
-                            SPLIT_PART(call_duration, ':', 2)::int * 60 +
-                            SPLIT_PART(call_duration, ':', 3)::int) >= 30 THEN
-                    (SPLIT_PART(call_duration, ':', 1)::int * 3600 +
-                     SPLIT_PART(call_duration, ':', 2)::int * 60 +
-                     SPLIT_PART(call_duration, ':', 3)::int)
-                  WHEN call_duration ~ '^\\d+:\\d+$'
-                       AND (SPLIT_PART(call_duration, ':', 1)::int * 60 +
-                            SPLIT_PART(call_duration, ':', 2)::int) >= 30 THEN
-                    (SPLIT_PART(call_duration, ':', 1)::int * 60 +
-                     SPLIT_PART(call_duration, ':', 2)::int)
-                  ELSE 0
-                END
-              ), 0) as talk_time_seconds
-         FROM call_logs
-        WHERE (call_time AT TIME ZONE 'Asia/Karachi')::date >= $1
-          AND (call_time AT TIME ZONE 'Asia/Karachi')::date <= $2
-        GROUP BY agent_extension, (call_time AT TIME ZONE 'Asia/Karachi')::date`,
+      `SELECT * FROM ${shiftCallTotalsSql('$1::date', '$2::date')} c`,
       rangeParams
     ),
     query<AttendanceRow>(
@@ -625,19 +604,21 @@ export async function buildMonthlyReports(
   ]);
 
   // Index the bulk data.
-  const statsByUser = new Map<number, Map<string, { calls: number; talk: number; leads: number }>>();
+  const statsByUser = new Map<number, Map<string, { calls: number; talk: number; meeting: number; leads: number }>>();
   for (const r of dailyStatsRows) {
     if (!statsByUser.has(r.user_id)) statsByUser.set(r.user_id, new Map());
     statsByUser.get(r.user_id)!.set(r.date, {
       calls: Number(r.calls_count),
       talk: Number(r.talk_time_seconds),
+      meeting: Number(r.meeting_seconds),
       leads: Number(r.leads_count),
     });
   }
-  const callsByExt = new Map<string, Map<string, { calls: number; talk: number }>>();
+  const callsByUser = new Map<number, Map<string, { calls: number; talk: number }>>();
   for (const r of callLogRows) {
-    if (!callsByExt.has(r.agent_extension)) callsByExt.set(r.agent_extension, new Map());
-    callsByExt.get(r.agent_extension)!.set(r.date, {
+    const uid = Number(r.user_id);
+    if (!callsByUser.has(uid)) callsByUser.set(uid, new Map());
+    callsByUser.get(uid)!.set(r.date, {
       calls: Number(r.calls_count),
       talk: Number(r.talk_time_seconds),
     });
@@ -665,16 +646,16 @@ export async function buildMonthlyReports(
     const employmentType: EmploymentType = a.employment_type === 'part_time' ? 'part_time' : 'full_time';
     const targets = allTargets[employmentType];
     const statsMap = statsByUser.get(a.id);
-    const callsMap = callsByExt.get(a.extension_number);
+    const callsMap = callsByUser.get(Number(a.id));
     const attMap = attByUser.get(a.id);
 
     const days: DayInput[] = workingDayDates.map((date) => {
       const s = statsMap?.get(date);
       const c = callsMap?.get(date);
       const att = attMap?.get(date);
-      // call_logs override calls/talk (real-time); leads come from daily_stats.
-      const calls = c ? c.calls : s ? s.calls : 0;
-      const talk = c ? c.talk : s ? s.talk : 0;
+      // call_logs give calls and call talk time; HR-added meeting time is
+      // always added on top; leads come from daily_stats.
+      const { calls, talk } = mergeDay(c, s);
       const leads = s ? s.leads : 0;
       const hasStats = Boolean(s) || Boolean(c);
       return {

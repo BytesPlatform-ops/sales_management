@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { query } from '@/lib/db';
+import { currentShiftDateSql, shiftCallTotalsSql } from '@/lib/call-stats';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
@@ -21,55 +22,31 @@ export async function GET(request: NextRequest) {
     const token = authHeader.split(' ')[1];
     await jwtVerify(token, JWT_SECRET);
 
-    // Use CURRENT_DATE directly from database to match dashboard.py logic
-    // This ensures consistent timezone handling with the database server
-
-    // Get today's leaderboard - includes ALL active agents, even with 0 stats
-    // Uses call_logs for real-time call tracking (matching dashboard.py)
-    // Uses daily_stats for leads_count AND meeting_seconds (HR-added Zoom/Meet time)
+    // Today = each agent's current shift date (their own shift times), counted
+    // the shared way: every call counts, talk time only from calls >= 30 s,
+    // plus HR-added meeting time (lib/call-stats.ts).
     const result = await query(
-      `SELECT 
-        u.id as user_id,
-        u.full_name,
-        u.extension_number,
-        COALESCE(cl.call_log_calls, 0) as calls_count,
-        COALESCE(cl.call_log_seconds, 0) + COALESCE(ds.meeting_seconds, 0) as talk_time_seconds,
+      `WITH agents AS (
+         SELECT u.id, u.full_name, u.extension_number, ${currentShiftDateSql()} AS shift_date
+           FROM users u
+          WHERE u.role = 'agent' AND u.is_active = true
+       ),
+       calls AS ${shiftCallTotalsSql('CURRENT_DATE - 1', 'CURRENT_DATE + 1')}
+       SELECT
+        a.id as user_id,
+        a.full_name,
+        a.extension_number,
+        COALESCE(cl.calls_count, 0) as calls_count,
+        COALESCE(cl.talk_time_seconds, 0) + COALESCE(ds.meeting_seconds, 0) as talk_time_seconds,
         COALESCE(ds.leads_count, 0) as leads_count,
         ROW_NUMBER() OVER (
-          ORDER BY 
-            COALESCE(cl.call_log_calls, 0) DESC, 
-            COALESCE(cl.call_log_seconds, 0) + COALESCE(ds.meeting_seconds, 0) DESC
+          ORDER BY
+            COALESCE(cl.calls_count, 0) DESC,
+            COALESCE(cl.talk_time_seconds, 0) + COALESCE(ds.meeting_seconds, 0) DESC
         ) as rank
-       FROM users u
-       LEFT JOIN daily_stats ds ON ds.user_id = u.id AND ds.date = CURRENT_DATE
-       LEFT JOIN (
-         SELECT 
-           agent_extension,
-           COUNT(*) as call_log_calls,
-           COALESCE(SUM(
-             CASE 
-               WHEN call_duration ~ '^\\d+:\\d+:\\d+$' THEN 
-                 CASE WHEN (SPLIT_PART(call_duration, ':', 1)::int * 3600 + 
-                            SPLIT_PART(call_duration, ':', 2)::int * 60 + 
-                            SPLIT_PART(call_duration, ':', 3)::int) >= 30 THEN
-                   (SPLIT_PART(call_duration, ':', 1)::int * 3600 + 
-                    SPLIT_PART(call_duration, ':', 2)::int * 60 + 
-                    SPLIT_PART(call_duration, ':', 3)::int)
-                 ELSE 0 END
-               WHEN call_duration ~ '^\\d+:\\d+$' THEN 
-                 CASE WHEN (SPLIT_PART(call_duration, ':', 1)::int * 60 + 
-                            SPLIT_PART(call_duration, ':', 2)::int) >= 30 THEN
-                   (SPLIT_PART(call_duration, ':', 1)::int * 60 + 
-                    SPLIT_PART(call_duration, ':', 2)::int)
-                 ELSE 0 END
-               ELSE 0
-             END
-           ), 0) as call_log_seconds
-         FROM call_logs 
-         WHERE call_time::date = CURRENT_DATE
-         GROUP BY agent_extension
-       ) cl ON cl.agent_extension = u.extension_number
-       WHERE u.role = 'agent' AND u.is_active = true
+       FROM agents a
+       LEFT JOIN daily_stats ds ON ds.user_id = a.id AND ds.date = a.shift_date
+       LEFT JOIN calls cl ON cl.user_id = a.id AND cl.date = a.shift_date::text
        ORDER BY calls_count DESC, talk_time_seconds DESC
        LIMIT 10`,
       []

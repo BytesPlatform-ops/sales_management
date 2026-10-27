@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { query } from '@/lib/db';
+import { currentShiftDateSql, shiftCallTotalsSql } from '@/lib/call-stats';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
@@ -21,64 +22,47 @@ export async function GET(request: NextRequest) {
     const token = authHeader.split(' ')[1];
     await jwtVerify(token, JWT_SECRET);
 
-    // Use CURRENT_DATE and DATE_TRUNC directly from database to match dashboard.py logic
-    // This ensures consistent timezone handling with the database server
-
-    // Get monthly leaderboard - includes ALL active agents
-    // Uses call_logs for calls/talk_time (matching dashboard.py), daily_stats for leads AND meeting_seconds
+    // This month = shift dates from the 1st to each agent's current shift date,
+    // counted the shared way (lib/call-stats.ts), plus HR-added meeting time.
     const result = await query(
-      `SELECT 
-        u.id as user_id,
-        u.full_name,
-        u.extension_number,
-        COALESCE(cl.call_log_calls, 0) as total_calls,
-        COALESCE(cl.call_log_seconds, 0) + COALESCE(ds.total_meeting_seconds, 0) as total_talk_time,
+      `WITH agents AS (
+         SELECT u.id, u.full_name, u.extension_number, ${currentShiftDateSql()} AS shift_date
+           FROM users u
+          WHERE u.role = 'agent' AND u.is_active = true
+       ),
+       bounds AS (
+         SELECT DATE_TRUNC('month', MAX(shift_date))::date AS month_start, MAX(shift_date) AS month_end FROM agents
+       ),
+       calls AS ${shiftCallTotalsSql('(SELECT month_start FROM bounds)', '(SELECT month_end FROM bounds)')}
+       SELECT
+        a.id as user_id,
+        a.full_name,
+        a.extension_number,
+        COALESCE(cl.total_calls, 0) as total_calls,
+        COALESCE(cl.total_talk, 0) + COALESCE(ds.total_meeting_seconds, 0) as total_talk_time,
         COALESCE(ds.total_leads, 0) as total_leads,
         ROW_NUMBER() OVER (
-          ORDER BY 
-            COALESCE(cl.call_log_calls, 0) DESC, 
-            COALESCE(cl.call_log_seconds, 0) + COALESCE(ds.total_meeting_seconds, 0) DESC
+          ORDER BY
+            COALESCE(cl.total_calls, 0) DESC,
+            COALESCE(cl.total_talk, 0) + COALESCE(ds.total_meeting_seconds, 0) DESC
         ) as rank
-       FROM users u
+       FROM agents a
        LEFT JOIN (
-         SELECT 
-           user_id,
-           SUM(leads_count) as total_leads,
-           SUM(COALESCE(meeting_seconds, 0)) as total_meeting_seconds
-         FROM daily_stats 
-         WHERE date >= DATE_TRUNC('month', CURRENT_DATE)::date 
-           AND date <= CURRENT_DATE
-         GROUP BY user_id
-       ) ds ON ds.user_id = u.id
+         SELECT ds.user_id,
+                SUM(ds.leads_count) as total_leads,
+                SUM(COALESCE(ds.meeting_seconds, 0)) as total_meeting_seconds
+           FROM daily_stats ds
+           JOIN agents a ON a.id = ds.user_id
+          WHERE ds.date >= DATE_TRUNC('month', a.shift_date)::date AND ds.date <= a.shift_date
+          GROUP BY ds.user_id
+       ) ds ON ds.user_id = a.id
        LEFT JOIN (
-         SELECT 
-           agent_extension,
-           COUNT(*) as call_log_calls,
-           COALESCE(SUM(
-             CASE 
-               WHEN call_duration ~ '^\\d+:\\d+:\\d+$' THEN 
-                 CASE WHEN (SPLIT_PART(call_duration, ':', 1)::int * 3600 + 
-                            SPLIT_PART(call_duration, ':', 2)::int * 60 + 
-                            SPLIT_PART(call_duration, ':', 3)::int) >= 30 THEN
-                   (SPLIT_PART(call_duration, ':', 1)::int * 3600 + 
-                    SPLIT_PART(call_duration, ':', 2)::int * 60 + 
-                    SPLIT_PART(call_duration, ':', 3)::int)
-                 ELSE 0 END
-               WHEN call_duration ~ '^\\d+:\\d+$' THEN 
-                 CASE WHEN (SPLIT_PART(call_duration, ':', 1)::int * 60 + 
-                            SPLIT_PART(call_duration, ':', 2)::int) >= 30 THEN
-                   (SPLIT_PART(call_duration, ':', 1)::int * 60 + 
-                    SPLIT_PART(call_duration, ':', 2)::int)
-                 ELSE 0 END
-               ELSE 0
-             END
-           ), 0) as call_log_seconds
-         FROM call_logs 
-         WHERE call_time::date >= DATE_TRUNC('month', CURRENT_DATE)::date 
-           AND call_time::date <= CURRENT_DATE
-         GROUP BY agent_extension
-       ) cl ON cl.agent_extension = u.extension_number
-       WHERE u.role = 'agent' AND u.is_active = true
+         SELECT c.user_id, SUM(c.calls_count) as total_calls, SUM(c.talk_time_seconds) as total_talk
+           FROM calls c
+           JOIN agents a ON a.id = c.user_id
+          WHERE c.date::date >= DATE_TRUNC('month', a.shift_date)::date AND c.date::date <= a.shift_date
+          GROUP BY c.user_id
+       ) cl ON cl.user_id = a.id
        ORDER BY total_calls DESC, total_talk_time DESC
        LIMIT 10`,
       []

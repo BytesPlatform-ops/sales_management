@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { query, queryOne } from '@/lib/db';
+import { shiftCallTotalsSql } from '@/lib/call-stats';
 import bcrypt from 'bcryptjs';
 import { startOnboarding } from '@/lib/training/onboarding';
 
@@ -98,11 +99,17 @@ export async function GET(request: NextRequest) {
       [shiftDate]
     );
 
-    // Get today's talk time for each agent from daily_stats
+    // Today's talk time per agent: call talk time from call_logs (calls >= 30 s,
+    // each agent's own shift — lib/call-stats.ts) plus HR-added meeting time.
+    // Falls back to daily_stats when an agent has no call_logs that day.
     const talkTimeRows = await query<{ user_id: number; talk_time_seconds: number; meeting_seconds: number }>(
-      `SELECT user_id, talk_time_seconds, COALESCE(meeting_seconds, 0) as meeting_seconds
-       FROM daily_stats 
-       WHERE date = $1`,
+      `SELECT COALESCE(c.user_id, ds.user_id) AS user_id,
+              CASE WHEN c.user_id IS NOT NULL
+                   THEN c.talk_time_seconds + COALESCE(ds.meeting_seconds, 0)
+                   ELSE ds.talk_time_seconds END AS talk_time_seconds,
+              COALESCE(ds.meeting_seconds, 0) AS meeting_seconds
+         FROM (SELECT * FROM daily_stats WHERE date = $1) ds
+         FULL JOIN ${shiftCallTotalsSql('$1::date', '$1::date')} c ON c.user_id = ds.user_id`,
       [shiftDate]
     );
 

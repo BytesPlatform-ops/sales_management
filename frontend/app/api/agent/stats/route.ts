@@ -9,6 +9,7 @@ import {
 import { getAllTargets } from '@/lib/targets';
 import { loadRampLookup } from '@/lib/training/ramp';
 import { getAgentStartDates } from '@/lib/agent-start';
+import { mergeDay, shiftCallTotalsSql } from '@/lib/call-stats';
 import {
   getCurrentDateKarachi,
   formatDateYMD,
@@ -45,6 +46,7 @@ interface DbDailyStats {
   talk_time_seconds: string | number;
   leads_count: string | number;
   sales_amount: string | number;
+  meeting_seconds: string | number;
 }
 
 interface DbAttendance {
@@ -124,7 +126,8 @@ export async function GET(request: NextRequest) {
     
     // Fetch all daily stats for this month from daily_stats table
     const dailyStatsRows = await query<DbDailyStats>(
-      `SELECT date::text, calls_count, talk_time_seconds, leads_count, COALESCE(sales_amount, 0) as sales_amount
+      `SELECT date::text, calls_count, talk_time_seconds, leads_count, COALESCE(sales_amount, 0) as sales_amount,
+              COALESCE(meeting_seconds, 0) as meeting_seconds
        FROM daily_stats 
        WHERE user_id = $1 
          AND date >= DATE_TRUNC('month', CURRENT_DATE)::date
@@ -133,46 +136,17 @@ export async function GET(request: NextRequest) {
       [userId]
     );
 
-    // Also fetch real-time call data from call_logs table (aggregated by date)
-    // This gets the actual call data that 3CX is logging
-    // Using same logic as dashboard.py: call_time::date = CURRENT_DATE for today
+    // Calls per shift date this month (lib/call-stats.ts): every call counts;
+    // talk time only from calls >= 30 s; grouped by the agent's own shift.
     interface CallLogStats {
       date: string;
       calls_count: string | number;
       talk_time_seconds: string | number;
     }
-    
-    // Only count calls with duration >= 30 seconds for talk time calculation
     const callLogStats = await query<CallLogStats>(
-      `SELECT 
-         call_time::date::text as date,
-         COUNT(*) as calls_count,
-         COALESCE(SUM(
-           CASE 
-             WHEN call_duration ~ '^\\d+:\\d+:\\d+$' THEN 
-               CASE WHEN (SPLIT_PART(call_duration, ':', 1)::int * 3600 + 
-                          SPLIT_PART(call_duration, ':', 2)::int * 60 + 
-                          SPLIT_PART(call_duration, ':', 3)::int) >= 30 THEN
-                 (SPLIT_PART(call_duration, ':', 1)::int * 3600 + 
-                  SPLIT_PART(call_duration, ':', 2)::int * 60 + 
-                  SPLIT_PART(call_duration, ':', 3)::int)
-               ELSE 0 END
-             WHEN call_duration ~ '^\\d+:\\d+$' THEN 
-               CASE WHEN (SPLIT_PART(call_duration, ':', 1)::int * 60 + 
-                          SPLIT_PART(call_duration, ':', 2)::int) >= 30 THEN
-                 (SPLIT_PART(call_duration, ':', 1)::int * 60 + 
-                  SPLIT_PART(call_duration, ':', 2)::int)
-               ELSE 0 END
-             ELSE 0
-           END
-         ), 0) as talk_time_seconds
-       FROM call_logs 
-       WHERE agent_extension = $1 
-         AND call_time::date >= DATE_TRUNC('month', CURRENT_DATE)::date
-         AND call_time::date <= CURRENT_DATE
-       GROUP BY call_time::date
+      `SELECT * FROM ${shiftCallTotalsSql(`DATE_TRUNC('month', CURRENT_DATE)::date`, 'CURRENT_DATE', 'AND u.id = $1')} c
        ORDER BY date ASC`,
-      [user.extension_number]
+      [userId]
     );
 
     // Fetch all attendance records for this month
@@ -210,34 +184,12 @@ export async function GET(request: NextRequest) {
     console.log(`   Shift Start (UTC): ${shiftTiming.shiftStartUTC.toISOString()}`);
     console.log(`   Shift End (UTC): ${shiftTiming.shiftEndUTC.toISOString()}`);
     
-    // Only count calls with duration >= 30 seconds for talk time calculation
+    // Calls on the current shift date, counted the same way as HR and payroll
+    // (lib/call-stats.ts).
     const shiftStats = await queryOne<ShiftStats>(
-      `SELECT 
-         COUNT(*) as calls_count,
-         COALESCE(SUM(
-           CASE 
-             WHEN call_duration ~ '^\\d+:\\d+:\\d+$' THEN 
-               CASE WHEN (SPLIT_PART(call_duration, ':', 1)::int * 3600 + 
-                          SPLIT_PART(call_duration, ':', 2)::int * 60 + 
-                          SPLIT_PART(call_duration, ':', 3)::int) >= 30 THEN
-                 (SPLIT_PART(call_duration, ':', 1)::int * 3600 + 
-                  SPLIT_PART(call_duration, ':', 2)::int * 60 + 
-                  SPLIT_PART(call_duration, ':', 3)::int)
-               ELSE 0 END
-             WHEN call_duration ~ '^\\d+:\\d+$' THEN 
-               CASE WHEN (SPLIT_PART(call_duration, ':', 1)::int * 60 + 
-                          SPLIT_PART(call_duration, ':', 2)::int) >= 30 THEN
-                 (SPLIT_PART(call_duration, ':', 1)::int * 60 + 
-                  SPLIT_PART(call_duration, ':', 2)::int)
-               ELSE 0 END
-             ELSE 0
-           END
-         ), 0) as talk_time_seconds
-       FROM call_logs 
-       WHERE agent_extension = $1 
-         AND call_time >= $2
-         AND call_time < $3`,
-      [user.extension_number, shiftTiming.shiftStartUTC.toISOString(), shiftTiming.shiftEndUTC.toISOString()]
+      `SELECT COALESCE(SUM(calls_count), 0) AS calls_count, COALESCE(SUM(talk_time_seconds), 0) AS talk_time_seconds
+         FROM ${shiftCallTotalsSql('$2::date', '$2::date', 'AND u.id = $1')} c`,
+      [userId, shiftTiming.shiftDatePKT]
     );
 
     // Get meeting_seconds from daily_stats for the current shift date
@@ -293,32 +245,30 @@ export async function GET(request: NextRequest) {
     // daily_stats has leads and any manually added data
     const statsMap = new Map<string, DailyStats>();
     
-    // First, add data from daily_stats (for leads)
+    // call_logs give calls and call talk time; HR-added meeting time is always
+    // added on top (mergeDay); leads come from daily_stats.
+    const callsByDate = new Map(callLogStats.map(r => [r.date, r]));
     for (const row of dailyStatsRows) {
+      const c = callsByDate.get(row.date);
+      const merged = mergeDay(
+        c ? { calls: Number(c.calls_count), talk: Number(c.talk_time_seconds) } : undefined,
+        { calls: Number(row.calls_count), talk: Number(row.talk_time_seconds), meeting: Number(row.meeting_seconds) }
+      );
+      statsMap.set(row.date, {
+        date: row.date,
+        calls_count: merged.calls,
+        talk_time_seconds: merged.talk,
+        leads_count: Number(row.leads_count),
+      });
+    }
+    for (const row of callLogStats) {
+      if (statsMap.has(row.date)) continue;
       statsMap.set(row.date, {
         date: row.date,
         calls_count: Number(row.calls_count),
         talk_time_seconds: Number(row.talk_time_seconds),
-        leads_count: Number(row.leads_count),
+        leads_count: 0, // No leads data from call_logs
       });
-    }
-    
-    // Then, merge/override with call_logs data (real 3CX calls)
-    for (const row of callLogStats) {
-      const existing = statsMap.get(row.date);
-      if (existing) {
-        // Merge: use call_logs for calls/talk_time, keep leads from daily_stats
-        existing.calls_count = Number(row.calls_count);
-        existing.talk_time_seconds = Number(row.talk_time_seconds);
-      } else {
-        // New entry from call_logs
-        statsMap.set(row.date, {
-          date: row.date,
-          calls_count: Number(row.calls_count),
-          talk_time_seconds: Number(row.talk_time_seconds),
-          leads_count: 0, // No leads data from call_logs
-        });
-      }
     }
     
     // Days before the agent started don't count (reused extensions carry the

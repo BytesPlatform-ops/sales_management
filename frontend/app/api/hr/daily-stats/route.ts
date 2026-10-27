@@ -3,6 +3,7 @@ import { jwtVerify } from 'jose';
 import { query } from '@/lib/db';
 import { getAllTargets, AllTargets } from '@/lib/targets';
 import { calculatePerformanceScore, calculateDailyEarnings } from '@/lib/salary-utils';
+import { shiftCallTotalsSql } from '@/lib/call-stats';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
@@ -171,7 +172,7 @@ export async function GET(request: NextRequest) {
         COALESCE(ds.meeting_seconds, 0) as meeting_seconds,
         
         -- Calls from call_logs
-        COALESCE(call_stats.call_count, 0) as calls_count,
+        COALESCE(call_stats.calls_count, 0) as calls_count,
         -- Talk time from call_logs only (for breakdown display)
         COALESCE(call_stats.talk_time_seconds, 0) as call_talk_time_seconds,
         -- Total talk time = call_logs + meeting_seconds (for calculations)
@@ -190,19 +191,10 @@ export async function GET(request: NextRequest) {
       
       LEFT JOIN daily_stats ds ON ds.user_id = u.id AND ds.date = $1
       
-      -- Get calls and talk time from call_logs
-      LEFT JOIN (
-        SELECT 
-          agent_extension,
-          COUNT(*) as call_count,
-          SUM(
-            (CAST(SPLIT_PART(call_duration, ':', 1) AS INTEGER) * 60 +
-             CAST(SPLIT_PART(call_duration, ':', 2) AS INTEGER))
-          ) as talk_time_seconds
-        FROM call_logs
-        WHERE DATE(call_time AT TIME ZONE 'Asia/Karachi') = $1::date
-        GROUP BY agent_extension
-      ) call_stats ON call_stats.agent_extension = u.extension_number
+      -- Calls and talk time on this shift date (each agent's own shift; every
+      -- call counts, talk time only from calls >= 30 s) — lib/call-stats.ts
+      LEFT JOIN ${shiftCallTotalsSql('$1::date', '$1::date')} call_stats
+        ON call_stats.user_id = u.id
       
       LEFT JOIN (
         SELECT agent_id, COUNT(*) as count

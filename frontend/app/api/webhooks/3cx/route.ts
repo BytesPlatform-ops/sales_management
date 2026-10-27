@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query, queryOne } from '@/lib/db';
-import { getTodayDate } from '@/lib/date-utils';
+import { MIN_TALK_SECONDS, shiftDateFor } from '@/lib/call-stats';
 
 /**
  * 3CX Webhook Endpoint
@@ -72,8 +72,8 @@ export async function POST(request: NextRequest) {
     const { agent_extension, duration, call_type } = body;
     
     // Lookup user by extension number
-    const user = await queryOne<{ id: number; full_name: string }>(
-      'SELECT id, full_name FROM users WHERE extension_number = $1 AND is_active = true',
+    const user = await queryOne<{ id: number; full_name: string; shift_start: string | null; shift_end: string | null }>(
+      'SELECT id, full_name, shift_start::text, shift_end::text FROM users WHERE extension_number = $1 AND is_active = true',
       [agent_extension]
     );
     
@@ -85,15 +85,15 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Parse duration to seconds
+    // Parse duration to seconds. Every call counts; talk time only from calls
+    // of 30 s or more (lib/call-stats.ts).
     const durationSeconds = parseDurationToSeconds(duration);
+    const talkSeconds = durationSeconds >= MIN_TALK_SECONDS ? durationSeconds : 0;
     
-    // Get today's date in Karachi timezone
-    const today = getTodayDate();
+    // The agent's shift date, so a night shift stays on one date past midnight
+    const today = shiftDateFor(new Date(), user.shift_start, user.shift_end);
     
-    // Upsert into daily_stats
-    // If record exists for today, increment calls_count and add to talk_time_seconds
-    // If not, create a new record
+    // Upsert into daily_stats: increment calls_count and add talk time
     await query(
       `INSERT INTO daily_stats (user_id, date, calls_count, talk_time_seconds, leads_count)
        VALUES ($1, $2, 1, $3, 0)
@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
          calls_count = daily_stats.calls_count + 1,
          talk_time_seconds = daily_stats.talk_time_seconds + $3,
          updated_at = CURRENT_TIMESTAMP`,
-      [user.id, today, durationSeconds]
+      [user.id, today, talkSeconds]
     );
     
     console.log(`3CX Webhook: ${user.full_name} (${agent_extension}) - ${call_type || 'Call'} - ${duration} (${durationSeconds}s)`);

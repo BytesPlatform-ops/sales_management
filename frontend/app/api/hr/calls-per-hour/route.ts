@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import { query } from '@/lib/db';
+import { pktHourSql, shiftDateSql, talkSecondsSql } from '@/lib/call-stats';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
@@ -90,23 +91,23 @@ export async function GET(request: NextRequest) {
     const dateParam = searchParams.get('date');
     const targetDate = getWorkingDate(dateParam || undefined);
 
-    // One row per (hour, agent). Only agents that made calls that hour appear.
-    // EXTRACT(HOUR ...) on the Karachi-local timestamp gives the 0-23 clock hour.
+    // One row per (hour, agent) for this shift date. Calls belong to each
+    // agent's own shift (lib/call-stats.ts); hours are PKT clock hours. Every
+    // call counts; talk time only from calls >= 30 s.
     const rows = await query<any>(
       `
       SELECT
-        EXTRACT(HOUR FROM cl.call_time AT TIME ZONE 'Asia/Karachi')::int AS hour,
+        ${pktHourSql('cl.call_time')} AS hour,
         u.id   AS agent_id,
         u.full_name AS agent_name,
         u.extension_number AS extension,
         COUNT(*)::int AS call_count,
-        SUM(
-          CAST(SPLIT_PART(cl.call_duration, ':', 1) AS INTEGER) * 60 +
-          CAST(SPLIT_PART(cl.call_duration, ':', 2) AS INTEGER)
-        )::int AS talk_time_seconds
+        COALESCE(SUM(${talkSecondsSql('cl.call_duration')}), 0)::int AS talk_time_seconds
       FROM call_logs cl
       JOIN users u ON u.extension_number = cl.agent_extension
-      WHERE DATE(cl.call_time AT TIME ZONE 'Asia/Karachi') = $1::date
+      WHERE cl.call_time >= ($1::date - 1)::timestamp
+        AND cl.call_time < ($1::date + 2)::timestamp
+        AND ${shiftDateSql('cl.call_time')} = $1::date
         AND u.role = 'agent'
       GROUP BY hour, u.id, u.full_name, u.extension_number
       ORDER BY hour ASC, call_count DESC, u.full_name ASC
@@ -157,9 +158,9 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Order hours by the shift: 9 PM (21) first, wrapping past midnight, so the
-    // overnight shift reads top-to-bottom in the order it actually happened.
-    const SHIFT_START_HOUR = 21;
+    // Order hours from noon onward, wrapping past midnight, so overnight shifts
+    // (8 PM or 9 PM starts) read top-to-bottom in the order they happened.
+    const SHIFT_START_HOUR = 12;
     const hours = Array.from(bucketMap.values()).sort((a, b) => {
       const ra = (a.hour - SHIFT_START_HOUR + 24) % 24;
       const rb = (b.hour - SHIFT_START_HOUR + 24) % 24;

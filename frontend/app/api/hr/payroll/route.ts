@@ -9,6 +9,7 @@ import {
 import { getAllTargets } from '@/lib/targets';
 import { loadRampLookup } from '@/lib/training/ramp';
 import { getAgentStartDates } from '@/lib/agent-start';
+import { mergeDay, shiftCallTotalsSql } from '@/lib/call-stats';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
@@ -37,6 +38,7 @@ interface DailyStatsRow {
   calls_count: string | number;
   talk_time_seconds: string | number;
   leads_count: string | number;
+  meeting_seconds: string | number;
 }
 
 interface AttendanceRow {
@@ -47,7 +49,7 @@ interface AttendanceRow {
 }
 
 interface CallLogStats {
-  agent_extension: string;
+  user_id: number;
   date: string;
   calls_count: string | number;
   talk_time_seconds: string | number;
@@ -139,43 +141,18 @@ export async function GET(request: NextRequest) {
 
     // 4. Get daily_stats for the month
     const dailyStatsRows = await query<DailyStatsRow>(
-      `SELECT user_id, date::text, calls_count, talk_time_seconds, leads_count
+      `SELECT user_id, date::text, calls_count, talk_time_seconds, leads_count,
+              COALESCE(meeting_seconds, 0) AS meeting_seconds
        FROM daily_stats
        WHERE date >= $1 AND date <= $2
        ORDER BY date`,
       [monthStart, monthEnd]
     );
 
-    // 5. Get call_logs aggregated by day for the month
-    // Only count calls with duration >= 30 seconds for talk time
+    // 5. Get call_logs per agent per shift date (lib/call-stats.ts): every call
+    // counts; talk time only from calls >= 30 s; each agent's own shift times.
     const callLogStats = await query<CallLogStats>(
-      `SELECT 
-         agent_extension,
-         call_time::date::text as date,
-         COUNT(*) as calls_count,
-         COALESCE(SUM(
-           CASE 
-             WHEN call_duration ~ '^\\d+:\\d+:\\d+$' THEN 
-               CASE WHEN (SPLIT_PART(call_duration, ':', 1)::int * 3600 + 
-                          SPLIT_PART(call_duration, ':', 2)::int * 60 + 
-                          SPLIT_PART(call_duration, ':', 3)::int) >= 30 THEN
-                 (SPLIT_PART(call_duration, ':', 1)::int * 3600 + 
-                  SPLIT_PART(call_duration, ':', 2)::int * 60 + 
-                  SPLIT_PART(call_duration, ':', 3)::int)
-               ELSE 0 END
-             WHEN call_duration ~ '^\\d+:\\d+$' THEN 
-               CASE WHEN (SPLIT_PART(call_duration, ':', 1)::int * 60 + 
-                          SPLIT_PART(call_duration, ':', 2)::int) >= 30 THEN
-                 (SPLIT_PART(call_duration, ':', 1)::int * 60 + 
-                  SPLIT_PART(call_duration, ':', 2)::int)
-               ELSE 0 END
-             ELSE 0
-           END
-         ), 0) as talk_time_seconds
-       FROM call_logs
-       WHERE call_time::date >= $1 AND call_time::date <= $2
-       GROUP BY agent_extension, call_time::date
-       ORDER BY date`,
+      `SELECT * FROM ${shiftCallTotalsSql('$1::date', '$2::date')} c ORDER BY date`,
       [monthStart, monthEnd]
     );
 
@@ -204,7 +181,7 @@ export async function GET(request: NextRequest) {
     
     const callLogsMap = new Map<string, CallLogStats[]>();
     callLogStats.forEach(row => {
-      const key = row.agent_extension;
+      const key = `${row.user_id}`;
       if (!callLogsMap.has(key)) callLogsMap.set(key, []);
       callLogsMap.get(key)!.push(row);
     });
@@ -223,39 +200,27 @@ export async function GET(request: NextRequest) {
 
       const dailyPotential = agent.base_salary / workingDays;
       const agentDailyStats = dailyStatsMap.get(`${agent.id}`) || [];
-      const agentCallLogs = callLogsMap.get(agent.extension_number) || [];
+      const agentCallLogs = callLogsMap.get(`${agent.id}`) || [];
       const agentAttendance = attendanceMap.get(`${agent.id}`) || [];
       
       // Create attendance lookup by date
       const attendanceLookup = new Map<string, AttendanceRow>();
       agentAttendance.forEach(a => attendanceLookup.set(a.date, a));
       
-      // Merge daily_stats with call_logs
+      // Merge daily_stats with call_logs (mergeDay): call_logs give calls and
+      // call talk time; HR-added meeting time is always added on top.
       const statsPerDay = new Map<string, { calls: number; talkTime: number; leads: number }>();
-      
-      // First, add from daily_stats (for leads)
-      agentDailyStats.forEach(s => {
-        statsPerDay.set(s.date, {
-          calls: Number(s.calls_count),
-          talkTime: Number(s.talk_time_seconds),
-          leads: Number(s.leads_count),
-        });
-      });
-      
-      // Then, merge/override with call_logs (real-time data)
-      agentCallLogs.forEach(c => {
-        const existing = statsPerDay.get(c.date);
-        if (existing) {
-          existing.calls = Number(c.calls_count);
-          existing.talkTime = Number(c.talk_time_seconds);
-        } else {
-          statsPerDay.set(c.date, {
-            calls: Number(c.calls_count),
-            talkTime: Number(c.talk_time_seconds),
-            leads: 0,
-          });
-        }
-      });
+      const statsByDate = new Map(agentDailyStats.map(s => [s.date, s]));
+      const callsByDate = new Map(agentCallLogs.map(c => [c.date, c]));
+      for (const date of Array.from(new Set([...Array.from(statsByDate.keys()), ...Array.from(callsByDate.keys())]))) {
+        const s = statsByDate.get(date);
+        const c = callsByDate.get(date);
+        const merged = mergeDay(
+          c ? { calls: Number(c.calls_count), talk: Number(c.talk_time_seconds) } : undefined,
+          s ? { calls: Number(s.calls_count), talk: Number(s.talk_time_seconds), meeting: Number(s.meeting_seconds) } : undefined
+        );
+        statsPerDay.set(date, { calls: merged.calls, talkTime: merged.talk, leads: s ? Number(s.leads_count) : 0 });
+      }
       
       // Calculate payroll
       let daysWorked = 0;
